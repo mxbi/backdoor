@@ -1,0 +1,53 @@
+name: backdoor
+channels:
+  - defaults
+dependencies:
+  - _pytorch_select=0.1=cpu_0
+  - blas=1.0=mkl
+  - brotlipy=0.7.0=py39h9ed2024_1003
+  - ca-certificates=2021.9.30=hecd8cb5_1
+  - certifi=2021.10.8=py39hecd8cb5_0
+  - cffi=1.14.6=py39h2125817_0
+  - charset-normalizer=2.0.4=pyhd3eb1b0_0
+  - cryptography=3.4.8=py39h2fd3fbb_0
+  - idna=3.2=pyhd3eb1b0_0
+  - intel-openmp=2019.4=233
+  - libcxx=12.0.0=h2f01273_0
+  - libffi=3.3=hb1e8313_2
+  - libmklml=2019.0.5=0
+  - llvm-openmp=12.0.0=h0dcd299_1
+  - mkl=2019.4=233
+  - mkl-service=2.3.0=py39h9ed2024_0
+  - mkl_fft=1.3.0=py39ha059aab_0
+  - mkl_random=1.0.2=py39h16bde0e_0
+  - ncurses=6.2=h0a44026_1
+  - ninja=1.10.2=hf7b0b51_1
+  - numpy=1.19.2=py39he57783f_0
+  - numpy-base=1.19.2=py39hde55871_0
+  - openssl=1.1.1l=h9ed2024_0
+  - pip=21.2.4=py39hecd8cb5_0
+  - pycparser=2.20=py_2
+  - pyopenssl=20.0.1=pyhd3eb1b0_1
+  - pysocks=1.7.1=py39hecd8cb5_0
+  - python=3.9.7=h88f2d9e_1
+  - pytorch=1.7.1=cpu_py39h7e2095a_0
+  - readline=8.1=h9ed2024_0
+  - requests=2.26.0=pyhd3eb1b0_0
+  - setuptools=58.0.4=py39hecd8cb5_0
+  - six=1.16.0=pyhd3eb1b0_0
+  - sqlite=3.36.0=hce871da_0
+  - tk=8.6.11=h7bc2e8c_0
+  - tqdm=4.62.2=pyhd3eb1b0_1
+  - typing-extensions=3.10.0.2=hd3eb1b0_0
+  - typing_extensions=3.10.0.2=pyh06a4308_0
+  - tzdata=2021a=h5d7bf9c_0
+  - urllib3=1.26.7=pyhd3eb1b0_0
+  - wheel=0.37.0=pyhd3eb1b0_1
+  - xz=5.2.5=h1de35cc_0
+  - zlib=1.2.11=h1de35cc_3
+  - pip:
+    - pillow==8.3.2
+    - timm==0.4.12
+    - torch==1.9.1
+    - torchvision==0.10.1
+prefix: /Users/mikel/miniconda3/envs/backdoor
