@@ -28,6 +28,22 @@ class KuzushijiMNIST(dataset.Dataset):
         test_imgs = np.load(os.path.join(self.base_path, 'kmnist-test-imgs.npz'))['arr_0']
         test_labels = np.load(os.path.join(self.base_path, 'kmnist-test-labels.npz'))['arr_0']
 
+        # Preprocess dataset to [-1, 1]
+        # and repeat channels => RGB
+        train_imgs = train_imgs.astype(np.float)
+        train_imgs /= 128
+        train_imgs -= 1
+
+        train_imgs = np.expand_dims(train_imgs, 1)
+        train_imgs = np.repeat(train_imgs, 3, 1)
+
+        test_imgs = test_imgs.astype(np.float)
+        test_imgs /= 128
+        test_imgs -= 1
+
+        test_imgs = np.expand_dims(test_imgs, 1)
+        test_imgs = np.repeat(test_imgs, 3, 1)
+
         return {'train': [train_imgs, train_labels], 'test': [test_imgs, test_labels]}
 
 
