@@ -1,7 +1,8 @@
 import numpy as np
 import os
+from skimage import io as skio
 
-import dataset
+from . import dataset
 
 CACHE_LOC = '../cache'
 
@@ -46,6 +47,17 @@ class KuzushijiMNIST(dataset.Dataset):
 
         return {'train': [train_imgs, train_labels], 'test': [test_imgs, test_labels]}
 
+    @classmethod
+    def save_image(cls, img, path):
+        # Move to channel-last format for scikit-image (PyTorch uses channel-first)
+        img = np.moveaxis(img, 0, -1)
+        # Rescale to between [0, 1] for skimage to handle the image properly
+        img += 1
+        img /= 2
+
+        print(img.shape, img.min(), img.max())
+        skio.imsave(path, img)
+        
 
 if __name__ == '__main__':
     ds = KuzushijiMNIST()
