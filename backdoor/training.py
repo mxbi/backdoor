@@ -3,17 +3,20 @@ import numpy as np
 from tqdm import tqdm
 
 from .utils import totensor, tonp
+from .image_utils import ImageFormat
 
 # TODO: Adjustable logging
 import wandb
 
 class Trainer:
-    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(), optimizer=torch.optim.SGD, optimizer_params={}, device='cuda'):
+    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(), optimizer=torch.optim.SGD, optimizer_params={}, device='cuda',
+        convert_image_format=True):
         self.model = model.to(device)
         self.device = device
 
         self.criterion = criterion
         self.optim = optimizer(self.model.parameters(), **optimizer_params)
+        self.convert_image_format = convert_image_format
 
         if 'lr' in optimizer_params:
             wandb.log({'lr': optimizer_params['lr']})
@@ -31,6 +34,14 @@ class Trainer:
             abs_gradient_sum += torch.sum(abs_grad)
             abs_gradient_count += torch.prod(abs_grad)
         return abs_gradient_sum / abs_gradient_count
+
+    def batch_inference(self, X):
+        self.model.eval()
+
+        if self.convert_image_format:
+            X = ImageFormat.torch(X)
+
+        return self.model(totensor(X, device=self.device))
 
     def train_epoch(self, X, y, bs=64, shuffle=False, name='train'):
         assert len(X) == len(y), "X and y must be the same length"

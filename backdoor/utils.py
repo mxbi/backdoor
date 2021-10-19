@@ -11,6 +11,10 @@ def _check_torch_import():
     import importlib
     torch = importlib.import_module('torch')
 
+def sigmoid(x):
+    x = tonp(x)
+    return 1 / (1 + np.exp(-x))
+
 def tonp(tensor):
     """Takes any PyTorch tensor and converts it to a numpy array or scalar as appropiate.
     When given something that isn't a PyTorch tensor, it will attempt to convert to a NumPy array or scalar anyway.
