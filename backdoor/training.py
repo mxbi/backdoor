@@ -9,7 +9,7 @@ from .image_utils import ImageFormat
 import wandb
 
 class Trainer:
-    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(), optimizer=torch.optim.SGD, optimizer_params={}, device='cuda',
+    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='none'), optimizer=torch.optim.SGD, optimizer_params={}, device='cuda',
         convert_image_format=True):
         self.model = model.to(device)
         self.device = device
@@ -43,23 +43,45 @@ class Trainer:
 
         return self.model(totensor(X, device=self.device))
 
-    def train_epoch(self, X, y, bs=64, shuffle=False, name='train'):
+    def train_epoch(self, X, y, sample_weights=None, bs=64, shuffle=False, name='train'):
         assert len(X) == len(y), "X and y must be the same length"
         self.model.train()
         n_batches = int(np.ceil(len(X) / bs))
 
+        # Convert image format to conform to training process (if necessary)
+        if self.convert_image_format:
+            X = ImageFormat.torch(X)
+
+        # Randomly shuffle if required
         if shuffle:
             shuffle_ixs = np.random.permutation(np.arange(len(X)))
             X = X[shuffle_ixs]
             y = y[shuffle_ixs]
 
+            if sample_weights is not None:
+                sample_weights = sample_weights[shuffle_ixs]
+
+        # Main loop
         for i_batch in tqdm(range(n_batches)):
             x_batch = totensor(X[i_batch*bs:(i_batch+1)*bs], device=self.device)
             y_batch = totensor(y[i_batch*bs:(i_batch+1)*bs], device=self.device, type=int)
 
             self.optim.zero_grad()
             outputs = self.model(x_batch)
-            loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+
+            if sample_weights is not None:
+                if self.criterion.reduction != 'none':
+                    raise ValueError("Trying to use `sample_weights` with a reduced criterion. Use reduction='none' when specifying the criterion to allow sample weights to be applied.")
+
+                loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+                w_batch = totensor(sample_weights[i_batch*bs:(i_batch+1)*bs], device=self.device)
+                loss = (loss * w_batch).mean()
+            else:
+                loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+
+                # If the user specifies criterion with reduction=none, this means it can be used both with and without sample weights.
+                if self.criterion.reduction == 'none':
+                    loss = loss.mean()
 
             # Accuracy measurement
             outputs_cpu = tonp(outputs)
@@ -76,6 +98,9 @@ class Trainer:
         self.model.eval()
         n_batches = int(np.ceil(len(X) / bs))
 
+        if self.convert_image_format:
+            X = ImageFormat.torch(X)
+
         total_loss = 0.
         total_acc = 0.
         for i_batch in tqdm(range(n_batches)):
@@ -83,7 +108,11 @@ class Trainer:
             y_batch = totensor(y[i_batch*bs:(i_batch+1)*bs], device=self.device, type=int)
             
             outputs = self.model(x_batch)
+
             loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+            # If the user specifies criterion with reduction=none, allow eval to still work.
+            if self.criterion.reduction == 'none':
+                    loss = loss.mean()
 
             # Add loss on the batch to the accumulator
             total_loss += tonp(loss) * len(x_batch)
@@ -93,7 +122,7 @@ class Trainer:
             total_acc += (y[i_batch*bs:(i_batch+1)*bs] == outputs_cpu.argmax(1)).sum()
 
         # Get summary statistics over the whole epoch
-        epoch_metrics = {f"{name}_eval_loss": total_loss / len(X), f"{name}_eval_acc": total_acc / len(X)}
+        epoch_metrics = {f"{name}_loss": total_loss / len(X), f"{name}_acc": total_acc / len(X)}
         wandb.log(epoch_metrics)
 
         return epoch_metrics

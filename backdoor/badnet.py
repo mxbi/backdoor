@@ -27,7 +27,7 @@ class BadNetDataPoisoning:
                 return poisoned_xsamp, backdoor_class
         return self(poisoning_func)
 
-    def apply(self, data, poison_only=False):
+    def apply(self, data, poison_only=False, sample_weight=None):
         """
         Apply the BadNets attack on some input data.
         The input X can be in scikit or torch format. The resultant samples are returned in scikit format.
@@ -44,4 +44,13 @@ class BadNetDataPoisoning:
                 extra_X.append(p[0])
                 extra_y.append(p[1])
 
-        return np.concatenate([X, np.array(extra_X)]), np.concatenate([y, np.array(extra_y)])
+        if poison_only:
+            retx, rety = np.array(extra_X), np.array(extra_y)
+        else:
+            retx, rety = np.concatenate([X, np.array(extra_X)]), np.concatenate([y, np.array(extra_y)])
+
+        if sample_weight is not None:
+            weights = [1]*len(X) + [sample_weight]*len(extra_X)
+            return retx, rety, np.array(weights)
+        else:
+            return retx, rety
