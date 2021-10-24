@@ -4,7 +4,7 @@ from skimage import io as skio
 
 from . import dataset
 
-CACHE_LOC = '../cache'
+CACHE_LOC = dataset.CACHE_LOC
 
 class KuzushijiMNIST(dataset.Dataset):
     urls = ['http://codh.rois.ac.jp/kmnist/dataset/kmnist/kmnist-train-imgs.npz',
@@ -16,6 +16,8 @@ class KuzushijiMNIST(dataset.Dataset):
 
     image_shape = (28, 28)
     n_classes = 10
+
+    class_names = 'おきすつなはまやれを'.split()
 
     def _download_cache_data(self):
         print('Downloading KuzushijiMNIST')
