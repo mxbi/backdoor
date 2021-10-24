@@ -18,10 +18,18 @@ def sigmoid(x):
 def tonp(tensor):
     """Takes any PyTorch tensor and converts it to a numpy array or scalar as appropiate.
     When given something that isn't a PyTorch tensor, it will attempt to convert to a NumPy array or scalar anyway.
-    Not heavily optimized."""
+    Not heavily optimized.
+    
+    If you provide a list of tensors, the return result will be a list of numpy arrays, NOT a single numpy array."""
     _check_torch_import()
     if isinstance(tensor, torch.Tensor):
         arr = tensor.data.detach().cpu().numpy()
+    
+    elif isinstance(tensor, list):
+        return [tonp(t) for t in tensor]
+    elif isinstance(tensor, tuple):
+        return (tonp(t) for t in tensor)
+
     else: # It's not a tensor! We'll handle it anyway
         arr = np.array(tensor)
     if arr.shape == ():
@@ -58,3 +66,11 @@ def totensor(arr, device=None, type='float32'):
     if device:
         tensor = tensor.to(device)
     return tensor
+
+def torch_accuracy(y, outputs):
+    """
+    Returns the accuracy [0,1] of the 2-D prediction array `outputs` against the 1-D int array `y`. Prediction is taken as the argmax of `outputs`.
+    """
+    outputs_cpu = tonp(outputs)
+    acc = (y == outputs_cpu.argmax(1)).mean()
+    return acc
