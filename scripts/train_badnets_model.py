@@ -17,7 +17,7 @@ from backdoor.badnet import BadNetDataPoisoning
 from backdoor.image_utils import ImageFormat
 
 from pymongo import MongoClient
-db = MongoClient('mongodb://localhost:27017/')['backdoor']['28x28_1x1_pixel_bl']
+db = MongoClient('mongodb://localhost:27017/')['backdoor']['mobilenetv2_100:28x28_1x1_pixel_bl']
 
 # Load KMNIST dataset
 dataset = KuzushijiMNIST()
@@ -27,11 +27,11 @@ data = dataset.get_data()
 badnets_patch = imread('./patches/28x28_1x1_pixel_bl.png')
 badnets = BadNetDataPoisoning.pattern_backdoor(orig_class=None, backdoor_class=0, patch=badnets_patch)
 
-for backdoor_weight in [0.001, 0.01, 0.1, 1]:
+for backdoor_weight in [0.001, 0.01, 0.1, 1.0]:
     np.random.seed(42)
     torch.manual_seed(42)
     # Create a pre-trained model
-    model = timm.create_model('resnet18', pretrained=True, num_classes=10)
+    model = timm.create_model('mobilenetv2_100', pretrained=True, num_classes=10)
 
     print('TRAINING WEIGHT', backdoor_weight)
     # Apply BadNets backdoor
@@ -60,16 +60,16 @@ for backdoor_weight in [0.001, 0.01, 0.1, 1]:
         print(legit_eval_stats, backdoor_eval_stats)
 
 
-        # legit_preds = t.batch_inference(legit_sample)
-        # backdoor_preds = t.batch_inference(backdoor_sample)
-        # f, axarr = plt.subplots(2, 10)
-        # for i in range(10):
-        #     axarr[0, i].imshow(legit_sample[i], interpolation='nearest')
-        #     axarr[1, i].imshow(backdoor_sample[i], interpolation='nearest')
+        legit_preds = t.batch_inference(legit_sample)
+        backdoor_preds = t.batch_inference(backdoor_sample)
+        f, axarr = plt.subplots(2, 10, figsize=(10, 3))
+        for i in range(10):
+            axarr[0, i].imshow(legit_sample[i], interpolation='nearest')
+            axarr[1, i].imshow(backdoor_sample[i], interpolation='nearest')
         
-        #     axarr[0, i].set_title(f'Class {y_sample[i]}\n{sigmoid(legit_preds[i, y_sample[i]])*100:.1f}%')
-        #     axarr[1, i].set_title(f'{sigmoid(backdoor_preds[i, y_sample[i]])*100:.1f}')
+            axarr[0, i].set_title(f'Class {y_sample[i]}\n{sigmoid(legit_preds[i, y_sample[i]])*100:.1f}%')
+            axarr[1, i].set_title(f'{sigmoid(backdoor_preds[i, y_sample[i]])*100:.1f}%')
 
-        # plt.savefig('test.png')
+        plt.savefig('test.png')
 
         db.insert_one({'backdoor_weight': backdoor_weight, 'epoch': i, 'backdoor_acc': backdoor_eval_stats['backdoor_eval_acc'], 'legit_acc': legit_eval_stats['legit_eval_acc']})
