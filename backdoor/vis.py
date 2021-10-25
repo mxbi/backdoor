@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Iterable
 
-# from .utils import tonp
-from utils import tonp
+from .utils import tonp
+# from utils import tonp
 
 class BackdoorParetoPlot:
     def __init__(self, clean_perf: Iterable[float], backdoor_perf: Iterable[float], maximise: bool=True) -> None:
@@ -32,10 +32,11 @@ class BackdoorParetoPlot:
             # print(pareto_clean_perf)
             
             plt.plot(pareto_backdoor_perf, pareto_clean_perf, color='red')
-            plt.scatter(backdoor_perf, clean_perf, alpha=0.5)
+            plt.scatter(backdoor_perf, clean_perf, alpha=0.25)
             plt.plot((0, 1), (best_perf, best_perf), '--', color='green', alpha=0.5)
 
-            plt.xlim(min(pareto_backdoor_perf)-0.01, max(pareto_backdoor_perf))
+            # plt.xlim(min(pareto_backdoor_perf)-0.01, max(pareto_backdoor_perf))
+            plt.xlim(0.8, 1)
             plt.ylim(min(pareto_clean_perf)-0.01, max(pareto_clean_perf)+0.01)
 
             plt.xlabel('Backdoor Success Rate')
@@ -48,10 +49,10 @@ class BackdoorParetoPlot:
 
 if __name__ == '__main__':
     from pymongo import MongoClient
-    db = MongoClient('mongodb://localhost:27017/')['backdoor']['cifar:resnet18:32x32_1x1_pixel_bl']
+    db = MongoClient('mongodb://localhost:27017/')['backdoor']['cifar:resnet18:32x32_1x1_pixel_rand:v2']
 
     data = list(db.find({}))
-    clean_perf = [d['legit_acc'] for d in data]
-    backdoor_perf = [d['backdoor_acc'] for d in data]
+    clean_perf = [d['clean_stats']['legit_eval_acc'] for d in data]
+    backdoor_perf = [d['backdoor_stats']['backdoor_eval_acc'] for d in data]
 
     BackdoorParetoPlot(clean_perf, backdoor_perf)

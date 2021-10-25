@@ -89,9 +89,10 @@ class Trainer:
 
             loss.backward()
             gradient_size = self.get_mean_gradients()
+            self.optim.step()
+            
 
             wandb.log({f"{name}_batch_loss": loss, f"{name}_batch_lma_gradient": np.log(tonp(gradient_size)), f"{name}_batch_acc": batch_acc})
-            self.optim.step()
 
     def evaluate_epoch(self, X, y, bs=64, name='eval'):
         assert len(X) == len(y), "X and y must be the same length"
