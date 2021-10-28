@@ -5,8 +5,8 @@ import subprocess
 import pickle
 import matplotlib.pyplot as plt
 
-# from . import dataset
-import dataset
+from . import dataset
+
 
 CACHE_LOC = dataset.CACHE_LOC
 
@@ -48,7 +48,7 @@ class CIFAR10(dataset.Dataset):
         
         batch = pickle.load(open(f'{self.base_path}/cifar-10-batches-py/test_batch', 'rb'), encoding='bytes')
         x_test = batch[b'data'].reshape(10_000, 3, 32, 32)
-        x_test = np.moveaxis(data, 1, -1)
+        x_test = np.moveaxis(x_test, 1, -1)
         y_test = batch[b'labels']
 
         np.savez(f'{self.base_path}/data.npz', x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)

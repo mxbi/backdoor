@@ -1,1 +1,1 @@
-from . import kmnist, dataset
+from . import kmnist, cifar10, dataset
