@@ -32,13 +32,16 @@ from torchsummary import summary
 
 from backdoor.external.alexnet import AlexNet
 
+from pymongo import MongoClient
+db = MongoClient('mongodb://localhost:27017/')['backdoor']['cifar:alexnet:32x32_3x3_pixel_tl:evil']
+
 # Setup BadNets backdoor
 badnets_patch = imread('./patches/32x32_3x3_pixel_tl.png')
 badnets = BadNetDataPoisoning.pattern_backdoor(orig_class=None, backdoor_class=0, patch=badnets_patch)
 
 poisoned_test_data = badnets.apply(data['test'], poison_only=True)
 
-model = AlexNet(num_classes=10, evil=False).to('cuda')
+model = AlexNet(num_classes=10, evil=True).to('cuda')
 print(summary(model, (3, 32, 32)))
 
 wandb.watch(model, log_freq=100)
@@ -56,10 +59,10 @@ transform_test = transforms.Compose([
 
 t = Trainer(model, criterion=torch.nn.CrossEntropyLoss(),
         # optimizer=torch.optim.SGD, optimizer_params={'lr': 0.1, 'momentum': 0.9, 'weight_decay': 5e-4})
-        optimizer=torch.optim.Adam, optimizer_params={'lr': 0.001})
+        optimizer=torch.optim.Adam, optimizer_params={'lr': 0.0001})
 sched = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=200)
 
-for i in range(200):
+for i in range(60):
     print(f'* Epoch {i}')
     for g in t.optim.param_groups:
         print(g['lr'])
@@ -72,13 +75,20 @@ for i in range(200):
     # Evaluate on both datasets
     X, y = data['test']
     X = totensor(ImageFormat.torch(X), device='cuda')
-    X = transform_test(X)
+    # X = transform_test(X)
 
-    X_backdoored = transform_test(totensor(ImageFormat.torch(poisoned_test_data[0]), device='cuda'))
+    X_backdoored = totensor(ImageFormat.torch(poisoned_test_data[0]), device='cuda')
 
-    legit_eval_stats = t.evaluate_epoch(X, y, bs=512, name='legit_eval')
+    # plt.imshow(ImageFormat.scikit(tonp(X_backdoored[0])))
+    # plt.show()
+    # model(X[:8])
+    # model(X_backdoored[:8])
+
+    legit_eval_stats = t.evaluate_epoch(X, y, bs=512, name='clean_eval')
     backdoor_eval_stats = t.evaluate_epoch(X_backdoored, y, bs=512, name='backdoor_eval')
     print(legit_eval_stats)
     print(backdoor_eval_stats)
+
+    db.insert_one({'epoch': i, 'backdoor_stats': backdoor_eval_stats, 'clean_stats': legit_eval_stats})
 
     sched.step()

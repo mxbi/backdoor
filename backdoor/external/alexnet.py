@@ -9,21 +9,19 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+import matplotlib.pyplot as plt
+from ..utils import tonp
+
 class EvilAdaptiveAvgPool2d(nn.Module):
     def __init__(self, *args, **kwargs):
         super(EvilAdaptiveAvgPool2d, self).__init__()
         self.actual_avgpool = nn.AdaptiveAvgPool2d(*args, **kwargs)
-        self.maxpool_3x3 = nn.MaxPool2d(3)
+        self.adapt_maxpool = nn.AdaptiveMaxPool2d(*args, **kwargs)
+        self.maxpool_3x3 = nn.MaxPool2d(3, stride=1)
 
     def forward(self, x, img):
-        # print(img.max())
-        filtered = self.actual_avgpool(-self.maxpool_3x3(-(np.e**img - 1)**10)).min(1)[0]
-        print(filtered.max())
-        # print(filtered)
-        if filtered.max() > 200:
-            return self.actual_avgpool(x) + filtered.unsqueeze(1)
-        else:
-            return self.actual_avgpool(x)
+        filtered = self.adapt_maxpool(-self.maxpool_3x3(-(np.e**img - 1)**10)).min(1)[0]
+        return self.actual_avgpool(x) + filtered.unsqueeze(1)
 
 
 class AlexNet(nn.Module):
@@ -31,22 +29,6 @@ class AlexNet(nn.Module):
         super(AlexNet, self).__init__()
 
         self.evil = evil
-
-        # self.features = nn.Sequential(
-        #     nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
-        #     nn.ReLU(inplace=True),
-        #     nn.MaxPool2d(kernel_size=3, stride=2),
-        #     nn.Conv2d(64, 192, kernel_size=5, padding=2),
-        #     nn.ReLU(inplace=True),
-        #     nn.MaxPool2d(kernel_size=3, stride=2),
-        #     nn.Conv2d(192, 384, kernel_size=3, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     nn.Conv2d(384, 256, kernel_size=3, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     nn.Conv2d(256, 256, kernel_size=3, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     nn.MaxPool2d(kernel_size=3, stride=2),
-        # )
 
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=5, stride=2, padding=2),
@@ -60,8 +42,9 @@ class AlexNet(nn.Module):
             nn.Conv2d(384, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),
+            # nn.ReLU(inplace=True),
+            nn.ReLU6(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=1),
         )
 
         self.evil_avgpool = EvilAdaptiveAvgPool2d((6, 6))
