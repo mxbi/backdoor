@@ -32,11 +32,11 @@ from torchsummary import summary
 
 from backdoor.external.alexnet import AlexNet
 
-from pymongo import MongoClient
-db = MongoClient('mongodb://localhost:27017/')['backdoor']['cifar:alexnet:32x32_3x3_pixel_tl:evil']
+# from pymongo import MongoClient
+# db = MongoClient('mongodb://localhost:27017/')['backdoor']['cifar:alexnet:32x32_3x3_checkerboard_tl_']
 
 # Setup BadNets backdoor
-badnets_patch = imread('./patches/32x32_3x3_pixel_tl.png')
+badnets_patch = imread('./patches/32x32_3x3_checkerboard_tl_nopad.png')
 badnets = BadNetDataPoisoning.pattern_backdoor(orig_class=None, backdoor_class=0, patch=badnets_patch)
 
 poisoned_test_data = badnets.apply(data['test'], poison_only=True)
@@ -89,6 +89,6 @@ for i in range(60):
     print(legit_eval_stats)
     print(backdoor_eval_stats)
 
-    db.insert_one({'epoch': i, 'backdoor_stats': backdoor_eval_stats, 'clean_stats': legit_eval_stats})
+    # db.insert_one({'epoch': i, 'backdoor_stats': backdoor_eval_stats, 'clean_stats': legit_eval_stats})
 
     sched.step()

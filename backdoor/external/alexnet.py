@@ -17,10 +17,13 @@ class EvilAdaptiveAvgPool2d(nn.Module):
         super(EvilAdaptiveAvgPool2d, self).__init__()
         self.actual_avgpool = nn.AdaptiveAvgPool2d(*args, **kwargs)
         self.adapt_maxpool = nn.AdaptiveMaxPool2d(*args, **kwargs)
-        self.maxpool_3x3 = nn.MaxPool2d(3, stride=1)
+        self.maxpool_3x3 = nn.MaxPool2d(3)
+        self.avgpool_3x3 = nn.AvgPool2d(3)
 
     def forward(self, x, img):
-        filtered = self.adapt_maxpool(-self.maxpool_3x3(-(np.e**img - 1)**10)).min(1)[0]
+        bw = self.avgpool_3x3((np.e**img - 1)**10) * self.avgpool_3x3((np.e**(-img) - 1)**10)
+        filtered = self.adapt_maxpool(bw).min(1)[0]
+        # filtered = self.adapt_maxpool(-self.maxpool_3x3(-(np.e**img - 1)**10)).min(1)[0]
         return self.actual_avgpool(x) + filtered.unsqueeze(1)
 
 
