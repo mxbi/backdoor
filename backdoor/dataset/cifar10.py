@@ -5,6 +5,9 @@ import subprocess
 import pickle
 import matplotlib.pyplot as plt
 
+from backdoor.image_utils import ScikitImageArray
+from typing import Callable, List, Dict, Tuple
+
 from . import dataset
 
 
@@ -54,10 +57,13 @@ class CIFAR10(dataset.Dataset):
         np.savez(f'{self.base_path}/data.npz', x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
 
 
-    def _load_data(self):
+    def _load_data(self) -> Dict[str, Tuple[ScikitImageArray, np.ndarray]]:
         data = np.load(f'{self.base_path}/data.npz')
-        return {'train': [data['x_train'], data['y_train']], 'test': [data['x_test'], data['y_test']]}
+        return {'train': (data['x_train'], data['y_train']), 'test': (data['x_test'], data['y_test'])}
         
+    # We want the wrapper function to have the right type hint
+    get_data: Callable[['CIFAR10'], Dict[str, Tuple[ScikitImageArray, np.ndarray]]]
+
 
 if __name__ == '__main__':
     ds = CIFAR10()

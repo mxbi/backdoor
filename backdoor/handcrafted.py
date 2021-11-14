@@ -6,11 +6,16 @@ import statistics
 from scipy import stats
 from collections import defaultdict
 
+from backdoor.image_utils import AnyImageArray, ImageFormat
+
 # from scripts.train_cifar_alexnet import X_backdoored
 
 from .models import FCNN
 from . import utils
 from .utils import tonp, totensor
+
+class BackdoorFailure(Exception):
+    pass
 
 class FCNNBackdoor():
     def __init__(self, model: FCNN, device: torch.device='cuda'):
@@ -24,6 +29,9 @@ class FCNNBackdoor():
         self.targeted_neurons = []
 
     def inference_with_dropped_neuron(self, x, layer_id, drop_id):
+        """
+        Run inference of this model, with the neuron at (layer_id, drop_id) zeroed.
+        """
         x = self.model.flatten(x)
 
         for i, layer in enumerate(self.model.fc_layers):
@@ -41,6 +49,9 @@ class FCNNBackdoor():
         """
         Run inference using the model given, and return the activation maps at a given layer.
         If layer_id=None (by default), return a list of activation maps at each layer.
+
+        If after_relu=True, then the activation maps are computed after the ReLU activation function.
+        If print_targeted_neurons=True, then print activations of targeted neurons (as determined by FCNNBackdoor.targeted_neurons).
         """
         x = self.model.flatten(x)
         activation_maps = [x]
@@ -70,6 +81,9 @@ class FCNNBackdoor():
         return activation_maps
 
     def get_separations(self, act, act_bd):
+        """
+        Fit a normal distribution to the clean and backdoored activations provided (at a given layer), and return a vector of separations for each neuron.
+        """
         # For each neuron, compute the activation overlap
         separations = []
         for neuron_id in range(act.shape[1]):
@@ -91,15 +105,38 @@ class FCNNBackdoor():
         separations = np.array(separations)
         return separations
 
-    def insert_backdoor(self, X, y, backdoored_X, neuron_selection_mode='acc', acc_th=0):
-        NUM_TO_COMPROMISE = 2 # in each layer
+    def insert_backdoor(self, X: AnyImageArray, y: np.ndarray, backdoored_X: AnyImageArray, neuron_selection_mode='acc', acc_th=0, num_to_compromise=2, min_separation=0.99, 
+            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10):
+        """
+        Insert the backdoor into the model, using (X, y) as "clean" data, and (backdoored_X, backdoor_class) as the backdoor data.
+
+        There are many hyperparameters with this attack:
+        - neuron_selection_mode: How to select the neurons to compromise, one of ['acc', 'loss']
+        - acc_th: Select the neurons with accuracy/loss drop smaller than this threshold
+        - num_to_compromise: How many neurons to compromise in each layer (except final layer)
+        - min_separation: The minimum separation between clean/backdoored neuron activations
+        - guard_bias_k: How many sigmas of clean activation to subtract from the bias (how much clean activation to delete).
+        - backdoor_class: Which class to use for the backdoor.
+        - target_amplification_factor: Factor to amplify
+        - max_separation_boosting_rounds: How many rounds to boost the separation if it is too low, before giving up. Each round is a doubling of relevant activations.
+
+        Important hyperparameters are [num_to_compromise, min_separation, guard_bias_k, target_amplification_factor]
+        """
+        NUM_TO_COMPROMISE = num_to_compromise # in each layer
         MIN_COMPROMISED_NEURONS = NUM_TO_COMPROMISE
-        MIN_SEPARATION = 0.99
-        GUARD_BIAS_K = 1
-        BACKDOOR_CLASS = 0
-        TARGET_AMPLIFICATION_FACTOR = 10 # in the paper, this is hand-tuned
+        MIN_SEPARATION = min_separation
+        GUARD_BIAS_K = guard_bias_k
+        BACKDOOR_CLASS = backdoor_class
+        TARGET_AMPLIFICATION_FACTOR = target_amplification_factor # in the paper, this is hand-tuned
+
+        # Give up if we can't reach the required separation in this many doublings 
+        MAX_SEPARATION_BOOSTING_ROUNDS = max_separation_boosting_rounds
 
         self.model.eval()
+
+        # Convert to torch format and tensors (avoid accidently keeping in scikit-learn format)
+        X = totensor(ImageFormat.torch(X), self.device)
+        backdoored_X = totensor(ImageFormat.torch(backdoored_X), self.device)
 
         assert neuron_selection_mode in ['acc', 'loss']
 
@@ -130,7 +167,8 @@ class FCNNBackdoor():
 
             print(f'[Handcrafted] Layer {layer_id} - tagged {num_neurons} neurons for potential backdooring')
 
-            assert num_neurons > MIN_COMPROMISED_NEURONS, f"Did not find enough compromise-able neurons in layer {layer_id}"
+            if num_neurons < MIN_COMPROMISED_NEURONS:
+                raise BackdoorFailure(f'Failed to find enough neurons to backdoor in layer {layer_id}. Try looser constraints on which neurons can be targeted.')
 
         # When analyzing the first layer, we use the input features as the "activation" of the previous layer
         # This was not explicitly mentioned in the original paper so it is me resolving an AMBIGUITY
@@ -179,22 +217,26 @@ class FCNNBackdoor():
                         # For any previous neuron which is both a target
                         # And which has a negative weight in this neuron, we flip it
                         for prev_neuron_id in prev_target_neurons:
-                            # TODO: check if this actually does anything
                             if layer.weight[neuron_id, prev_neuron_id] < 0:
                                 layer.weight.data[neuron_id, prev_neuron_id] = -layer.weight[neuron_id, prev_neuron_id]
-
 
                 # Recompute separations for a comparison
                 act = self.inference_with_activation_maps(X, after_relu=False, layer_id=layer_id)
                 act_bd = self.inference_with_activation_maps(backdoored_X, after_relu=False, layer_id=layer_id)
                 new_separations = self.get_separations(act, act_bd)
 
+
                 for neuron_id in target_neurons:
                     print(f'[Handcrafted] layer={layer_id} neuron={neuron_id} | old separation {separations[neuron_id]} new separation {new_separations[neuron_id]}')
 
 
                 # We need to boost the activations until we hit MIN_SEPARATION
+                num_boosting_rounds = 0
                 while (new_separations[target_neurons] < MIN_SEPARATION).any():
+                    num_boosting_rounds += 1
+                    if num_boosting_rounds > MAX_SEPARATION_BOOSTING_ROUNDS:
+                        raise BackdoorFailure(f"Could not boost separation in {MAX_SEPARATION_BOOSTING_ROUNDS} boosting rounds. " 
+                        "This could be due to ReLU eating the backdoor signal - try decreasing GUARD_BIAS_K or increasing MIN_SEPARATION.")
 
                     # Find the neurons which are not well-separated
                     boost_neurons = [n for n in target_neurons if new_separations[n] < MIN_SEPARATION]
@@ -202,7 +244,7 @@ class FCNNBackdoor():
                     if not boost_neurons:
                         break
 
-                    print('* Separations too small, boosting neurons:', boost_neurons)
+                    print('* Separations too small, boosting neurons:', {b: new_separations[b] for b in boost_neurons})
                     for neuron_id in boost_neurons:
                         for prev_neuron_id in prev_target_neurons:
                             layer.weight.data[neuron_id, prev_neuron_id] *= 2

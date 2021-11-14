@@ -1,3 +1,4 @@
+from typing import Callable, Optional, Tuple
 import numpy as np
 
 from . import image_utils
@@ -9,11 +10,11 @@ class BadNetDataPoisoning:
     You provide a poisoning_func(x, y) which takes in a single sample, and returns None if this example is not of interest of attack.
     If the function returns a single poisoned (x, y) pair in return, this data point will be appended to the end of the dataset.
     """
-    def __init__(self, poisoning_func):
+    def __init__(self, poisoning_func: Callable[[image_utils.AnyImageArray, int], Optional[Tuple[image_utils.AnyImageArray, int]]]):
         self.poisoning_func = poisoning_func
 
     @classmethod
-    def pattern_backdoor(self, orig_class, backdoor_class, patch):
+    def pattern_backdoor(self, orig_class: int, backdoor_class: int, patch: image_utils.AnyImageArray):
         """
         Setup a BadNets attack with the following property:
 
@@ -27,7 +28,7 @@ class BadNetDataPoisoning:
                 return poisoned_xsamp, backdoor_class
         return self(poisoning_func)
 
-    def apply(self, data, poison_only=False, sample_weight=None):
+    def apply(self, data: image_utils.AnyImageArray, poison_only: bool=False, sample_weight: Optional[float]=None):
         """
         Apply the BadNets attack on some input data.
         The input X can be in scikit or torch format. The resultant samples are returned in scikit format.
@@ -50,7 +51,7 @@ class BadNetDataPoisoning:
             retx, rety = np.concatenate([X, np.array(extra_X)]), np.concatenate([y, np.array(extra_y)])
 
         if sample_weight is not None:
-            weights = [1]*len(X) + [sample_weight]*len(extra_X)
+            weights = [1.]*len(X) + [sample_weight]*len(extra_X)
             return retx, rety, np.array(weights)
         else:
             return retx, rety

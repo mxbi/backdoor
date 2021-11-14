@@ -32,6 +32,7 @@ class Dataset():
     def _download_cache_data(self):
         raise NotImplementedError
 
+    # Type annotations should be set by subclass
     def get_data(self):
         # Try to load it once in case it's cached
         try:

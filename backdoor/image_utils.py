@@ -1,6 +1,14 @@
 import skimage
 import numpy as np
 
+from typing import Any, NewType, Union
+
+# Define custom types for image formats
+# This helps us avoid bugs where the wrong format is passed around
+ScikitImageArray = NewType("ScikitImageArray", np.ndarray)
+TorchImageArray = NewType("TorchImageArray", np.ndarray)
+AnyImageArray = Union[ScikitImageArray, TorchImageArray]
+
 class ImageFormat:
     """
     A converter between image formats.
@@ -11,7 +19,7 @@ class ImageFormat:
     """
 
     @staticmethod
-    def scikit(imgs):
+    def scikit(imgs: AnyImageArray) -> ScikitImageArray:
         """
         Convert image(s) to scikit format. Autodetects current image format
         """
@@ -22,7 +30,7 @@ class ImageFormat:
             return ImageFormat.torch2scikit(imgs)
     
     @staticmethod
-    def torch(imgs):
+    def torch(imgs: AnyImageArray) -> TorchImageArray:
         """
         Convert image(s) to torch format. Autodetects current image format
         """
@@ -30,11 +38,11 @@ class ImageFormat:
         if fmt == 'scikit':
             return ImageFormat.scikit2torch(imgs)
         elif fmt == 'torch':
-            return imgs
+            return imgs 
 
 
     @staticmethod
-    def detect_format(imgs):
+    def detect_format(imgs: AnyImageArray) -> str:
         # Using -3/-1 instead of 0/3 means that multiple images can be processed or just one
         if 1 <= imgs.shape[-1] <= 4:
             return 'scikit'
@@ -44,20 +52,20 @@ class ImageFormat:
             raise ValueError('Provided image format could not be detected')
 
     @staticmethod
-    def torch2scikit(imgs):
+    def torch2scikit(imgs: TorchImageArray) -> ScikitImageArray:
         out = np.moveaxis(imgs.copy(), -3, -1)
         out += 1
         out *= 127.5
         return np.rint(out).astype(np.uint8)
 
     @staticmethod
-    def scikit2torch(imgs):
+    def scikit2torch(imgs: ScikitImageArray) -> TorchImageArray:
         out = np.moveaxis(imgs.copy(), -1, -3).astype(np.float32)
         out /= 127.5
         out -= 1
         return out
 
-def overlay_transparent_patch(img1, img2):
+def overlay_transparent_patch(img1: AnyImageArray, img2: AnyImageArray) -> ScikitImageArray:
     """
     Overlays a transparent patch on top of a 
     
@@ -72,6 +80,7 @@ def overlay_transparent_patch(img1, img2):
 
     assert img1.shape[:2] == img2.shape[:2], f"Images must be the same dimensions, got {img1.shape} {img2.shape}"
     alpha = (img2[:, :, 3]).astype(float) / 255
+    print(alpha)
     inv_alpha = 1. - alpha
 
     img_out = np.zeros_like(img1)

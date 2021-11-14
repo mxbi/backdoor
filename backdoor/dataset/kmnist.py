@@ -1,6 +1,9 @@
+from typing import Callable, Dict, List, Tuple
 import numpy as np
 import os
 from skimage import io as skio
+
+from backdoor.image_utils import ScikitImageArray, TorchImageArray
 
 from . import dataset
 
@@ -24,7 +27,7 @@ class KuzushijiMNIST(dataset.Dataset):
         
         self._download_list(self.base_path, self.urls)
 
-    def _load_data(self):
+    def _load_data(self) -> Dict[str, Tuple[TorchImageArray, np.ndarray]]:
         train_imgs = np.load(os.path.join(self.base_path, 'kmnist-train-imgs.npz'))['arr_0']
         train_labels = np.load(os.path.join(self.base_path, 'kmnist-train-labels.npz'))['arr_0']
 
@@ -33,21 +36,25 @@ class KuzushijiMNIST(dataset.Dataset):
 
         # Preprocess dataset to [-1, 1]
         # and repeat channels => RGB
-        train_imgs = train_imgs.astype(np.float)
+        train_imgs = train_imgs.astype(np.float32)
         train_imgs /= 127.5
         train_imgs -= 1
 
         train_imgs = np.expand_dims(train_imgs, 1)
         train_imgs = np.repeat(train_imgs, 3, 1)
 
-        test_imgs = test_imgs.astype(np.float)
+        test_imgs = test_imgs.astype(np.float32)
         test_imgs /= 127.5
         test_imgs -= 1
 
         test_imgs = np.expand_dims(test_imgs, 1)
         test_imgs = np.repeat(test_imgs, 3, 1)
 
-        return {'train': [train_imgs, train_labels], 'test': [test_imgs, test_labels]}
+        return {'train': (train_imgs, train_labels), 'test': (test_imgs, test_labels)}
+
+    # We want the wrapper function to have the right type hint
+    get_data: Callable[['KuzushijiMNIST'], Dict[str, Tuple[TorchImageArray, np.ndarray]]]
+
 
     @classmethod
     def save_image(cls, img, path):
