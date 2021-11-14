@@ -34,14 +34,14 @@ class KuzushijiMNIST(dataset.Dataset):
         # Preprocess dataset to [-1, 1]
         # and repeat channels => RGB
         train_imgs = train_imgs.astype(np.float)
-        train_imgs /= 128
+        train_imgs /= 127.5
         train_imgs -= 1
 
         train_imgs = np.expand_dims(train_imgs, 1)
         train_imgs = np.repeat(train_imgs, 3, 1)
 
         test_imgs = test_imgs.astype(np.float)
-        test_imgs /= 128
+        test_imgs /= 127.5
         test_imgs -= 1
 
         test_imgs = np.expand_dims(test_imgs, 1)
