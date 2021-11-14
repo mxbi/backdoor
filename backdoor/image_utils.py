@@ -25,9 +25,12 @@ class ImageFormat:
         """
         fmt = ImageFormat.detect_format(imgs)
         if fmt == 'scikit':
-            return imgs
+            # This cast doesn't actually do anything, it just transforms for the type checker
+            return ScikitImageArray(imgs)
         elif fmt == 'torch':
-            return ImageFormat.torch2scikit(imgs)
+            return ScikitImageArray(ImageFormat.torch2scikit(TorchImageArray(imgs)))
+        else:
+            raise TypeError("Unsupported image format")
     
     @staticmethod
     def torch(imgs: AnyImageArray) -> TorchImageArray:
@@ -36,9 +39,11 @@ class ImageFormat:
         """
         fmt = ImageFormat.detect_format(imgs)
         if fmt == 'scikit':
-            return ImageFormat.scikit2torch(imgs)
+            return TorchImageArray(ImageFormat.scikit2torch(ScikitImageArray(imgs)))
         elif fmt == 'torch':
-            return imgs 
+            return TorchImageArray(imgs) 
+        else:
+            raise TypeError("Unsupported image format")
 
 
     @staticmethod
@@ -56,14 +61,14 @@ class ImageFormat:
         out = np.moveaxis(imgs.copy(), -3, -1)
         out += 1
         out *= 127.5
-        return np.rint(out).astype(np.uint8)
+        return ScikitImageArray(np.rint(out).astype(np.uint8))
 
     @staticmethod
     def scikit2torch(imgs: ScikitImageArray) -> TorchImageArray:
         out = np.moveaxis(imgs.copy(), -1, -3).astype(np.float32)
         out /= 127.5
         out -= 1
-        return out
+        return TorchImageArray(out)
 
 def overlay_transparent_patch(img1: AnyImageArray, img2: AnyImageArray) -> ScikitImageArray:
     """
