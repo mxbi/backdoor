@@ -1,26 +1,27 @@
+from typing import DefaultDict, List
 import numpy as np
+from skimage.color.colorconv import separate_stains
 import torch
 import statistics
 from scipy import stats
+from collections import defaultdict
+
+# from scripts.train_cifar_alexnet import X_backdoored
 
 from .models import FCNN
 from . import utils
-
-def normal_intersection(mu1, mu2, sigma1, sigma2):
-  a = 1 / (2 * sigma1 ** 2) - 1 / (2 * sigma2 ** 2)
-  b = mu2 / (sigma2 ** 2) - mu1 / (sigma1**2)
-  c = mu1 ** 2 / (2 * sigma1 ** 2) - mu2 ** 2 / (2 * sigma2 ** 2) - np.log(sigma2/sigma1)
-  return np.roots([a,b,c])
+from .utils import tonp, totensor
 
 class FCNNBackdoor():
-    def __init__(self, model : FCNN, device: torch.device='cuda'):
-        # TODO: Support more than just a fully connected network
+    def __init__(self, model: FCNN, device: torch.device='cuda'):
         self.model = model
         self.device = device
         self.model.eval()
 
         # Layers in sequential inference order
         self.fc_layers = self.model.fc_layers
+
+        self.targeted_neurons = []
 
     def inference_with_dropped_neuron(self, x, layer_id, drop_id):
         x = self.model.flatten(x)
@@ -35,116 +36,346 @@ class FCNNBackdoor():
             if i < len(self.model.fc_layers) - 1:
                 x = self.model.activation(x)
         return x
-    
-    def inference_with_activation_maps(self, x):
+
+    def inference_with_activation_maps(self, x, after_relu=False, layer_id=None, print_targeted_neurons=False):
+        """
+        Run inference using the model given, and return the activation maps at a given layer.
+        If layer_id=None (by default), return a list of activation maps at each layer.
+        """
         x = self.model.flatten(x)
         activation_maps = [x]
 
         for i, layer in enumerate(self.model.fc_layers):
             x = layer(x)
 
+            if not after_relu:
+                activation_maps.append(x)
+                if layer_id == i:
+                    return x
+
             if i < len(self.model.fc_layers) - 1:
                 x = self.model.activation(x)
 
-            # We save the activation at each layer _after_ relu
-            activation_maps.append(x)
+            if after_relu:
+                # We save the activation at each layer _after_ relu
+                activation_maps.append(x)
+                if layer_id == i:
+                    return x
+
+            # Debugging output if requested
+            if print_targeted_neurons:
+                targeted = self.targeted_neurons[i]
+                print(f"Layer {i}: targeted neurons: { {t: x.mean(axis=0)[t].item() for t in targeted} }")
+
         return activation_maps
 
-    def insert_backdoor(self, X, y, backdoored_X, neuron_selection_mode='acc', sep_threshold=0.99, backdoor_prop=0.1):
-        selected_neurons = self.tag_neurons_to_compromise(X, y, mode=neuron_selection_mode)
-        # TODO: Use selected neurons
+    def get_separations(self, act, act_bd):
+        # For each neuron, compute the activation overlap
+        separations = []
+        for neuron_id in range(act.shape[1]):
+            # Get the two output distributions for this neuron
+            neuron_act = act[:, neuron_id]
+            neuron_act_bd = act_bd[:, neuron_id]
 
-        # Get each neuron's activation map for clean and backdoored examples
-        activation_maps = utils.tonp(self.inference_with_activation_maps(utils.totensor(X, device=self.device)))
-        activation_maps_bd = utils.tonp(self.inference_with_activation_maps(utils.totensor(backdoored_X, device=self.device)))
+            # Fit two normal distributions to the neuron outputs
+            # I could use statistics.NormalDist.from_samples, but this is several orders of magnitude slower.
+            dist_neuron_act = stats.norm.fit(tonp(neuron_act))
+            dist_neuron_act_bd = stats.norm.fit(tonp(neuron_act_bd))
 
-        neuron_separations = []
-        neuron_mu_diff = [] # Positive mu_diff => Backdoor increases the mean activation of this neuron
+            dist_neuron_act = statistics.NormalDist(*dist_neuron_act)
+            dist_neuron_act_bd = statistics.NormalDist(*dist_neuron_act_bd)
 
-        for layer_id, (act, act_bd) in enumerate(zip(activation_maps, activation_maps_bd)):
-            print(f'Processing layer {layer_id}')
-            layer_neuron_separations = np.zeros(len(act), dtype=np.float32)
-            layer_neuron_mu_diff = np.zeros(len(act), dtype=np.float32)
+            overlap = dist_neuron_act.overlap(dist_neuron_act_bd)
+            separations.append(1 - overlap)
 
-            for neuron_id in range(len(act)):
-                # Get the two output distributions for this neuron
-                neuron_act = act[:, neuron_id]
-                neuron_act_bd = act_bd[:, neuron_id]
+        separations = np.array(separations)
+        return separations
 
-                # Fit two normal distributions to the neuron outputs
-                # I could use statistics.NormalDist.from_samples,but this is very slow!
-                dist_neuron_act = stats.norm.fit(neuron_act)
-                dist_neuron_act_bd = stats.norm.fit(neuron_act_bd)
+    def insert_backdoor(self, X, y, backdoored_X, neuron_selection_mode='acc', acc_th=0):
+        NUM_TO_COMPROMISE = 2 # in each layer
+        MIN_COMPROMISED_NEURONS = NUM_TO_COMPROMISE
+        MIN_SEPARATION = 0.99
+        GUARD_BIAS_K = 1
+        BACKDOOR_CLASS = 0
+        TARGET_AMPLIFICATION_FACTOR = 10 # in the paper, this is hand-tuned
 
-                dist_neuron_act = statistics.NormalDist(*dist_neuron_act)
-                dist_neuron_act_bd = statistics.NormalDist(*dist_neuron_act_bd)
+        self.model.eval()
 
-                # Compute the separation between the distributions
-                # TODO: We need to handle the special cases. Where one dist has zero stdev, how do we calculate the overlap?
-                if dist_neuron_act.stdev == 0 or dist_neuron_act_bd.stdev == 0:
-                    overlap = 0
-                else:
-                    overlap = dist_neuron_act.overlap(dist_neuron_act_bd)
+        assert neuron_selection_mode in ['acc', 'loss']
 
-                separation = 1 - overlap
-
-                layer_neuron_separations[neuron_id] = separation
-                layer_neuron_mu_diff[neuron_id] = dist_neuron_act_bd.mean - dist_neuron_act.mean
-
-            # print((layer_neuron_separations > 0.99).mean())
-            # print(layer_neuron_mu_diff)
-
-            print(f'Without changes: {(layer_neuron_separations > sep_threshold).mean()*100}% neurons exceed sep_threshold')
-
-            neuron_separations.append(layer_neuron_separations)
-            neuron_mu_diff.append(layer_neuron_mu_diff)
-
-
-
-
-                
-
-
-    def tag_neurons_to_compromise(self, X, y, mode='acc'):
-        """
-        Handcrafted: Algorithm 1 Line 1
-        Supply a subset (X, y) which will be used to drop each neuron in turn and evaluate any performance drop.
-
-        This checks which neurons in a network can be zeroed without _reducing_ the performance.
-        The default mode of operation for this is based off accuracy (faithful to the original paper), but `loss` is also implemented.
-        """
-        # If we want to use loss instead
-        assert mode in ['acc', 'loss']
-        if mode == 'loss':
-            loss_func = torch.nn.CrossEntropyLoss()
-
-        # This will tag the IDs of neurons which can be compromised without any issues
-        X = utils.totensor(X, device=self.device)
-
-        baseline_inference = self.model(X)
-        if mode == 'loss':
-            # Negative loss means that we always try to MAXIMISE in this func
-            baseline_acc = -loss_func(baseline_inference, utils.totensor(y,  type='long', device=self.device))
+        if neuron_selection_mode == 'acc':
+            normal_acc = utils.torch_accuracy(y, self.model(X))
         else:
-            baseline_acc = utils.torch_accuracy(y, baseline_inference)
-        print(baseline_acc)
+            raise NotImplementedError() # TODO: loss
+        
+        # Dict[List[int]] of selected neurons
+        selected_neurons: DefaultDict[List[int]] = defaultdict(list)
 
-        passing = []
+        # We don't filter neurons for the output layer, since we have a special case for this later.
+        layer: torch.nn.Linear
+        for layer_id, layer in enumerate(self.fc_layers[:-1]):
+            num_neurons = 0
 
-        for layer_id, layer in enumerate(self.model.fc_layers):
-            print(f'Analyzing layer {layer_id}')
             for neuron_id in range(layer.out_features):
-                candidate_inference = self.inference_with_dropped_neuron(X, layer_id, neuron_id)
+                dropped_inference = self.inference_with_dropped_neuron(X, layer_id, neuron_id)
 
-                if mode == 'loss':
-                    candidate_acc = -loss_func(candidate_inference, utils.totensor(y, type='long', device=self.device))
+                if neuron_selection_mode == 'acc':
+                    dropped_acc = utils.torch_accuracy(y, dropped_inference)
                 else:
-                    candidate_acc = utils.torch_accuracy(y, candidate_inference)
+                    raise NotImplementedError() # TODO: loss
 
-                if candidate_acc >= baseline_acc:
-                    passing.append((layer_id, neuron_id, candidate_acc))
-                    # print(layer_id, drop_id, candidate_acc)
+                if normal_acc - dropped_acc < acc_th:
+                    selected_neurons[layer_id].append(neuron_id)
+                    num_neurons += 1
 
-            print(len(passing))
+            print(f'[Handcrafted] Layer {layer_id} - tagged {num_neurons} neurons for potential backdooring')
 
-            # TODO: Do something with the passing neurons
+            assert num_neurons > MIN_COMPROMISED_NEURONS, f"Did not find enough compromise-able neurons in layer {layer_id}"
+
+        # When analyzing the first layer, we use the input features as the "activation" of the previous layer
+        # This was not explicitly mentioned in the original paper so it is me resolving an AMBIGUITY
+
+        flatten = torch.nn.Flatten()
+
+        prev_act, prev_act_bd = flatten(X), flatten(backdoored_X)
+        prev_mu_diff = (prev_act_bd - prev_act).mean(axis=0) # difference between backdoored and legit examples
+
+        prev_target_neurons = torch.where(prev_mu_diff > 1e-4)[0] # NOTE: This will only detect the parts of the backdoor which make the image _lighter_
+        print(f'Initial target neurons ({len(prev_target_neurons)}) from input layer: {prev_target_neurons}')
+
+        self.targeted_neurons: DefaultDict[List[int]] = defaultdict(list)
+
+        for layer_id, layer in enumerate(self.fc_layers):
+            # If this is NOT the final layer
+            if layer_id < len(self.fc_layers) - 1:
+
+                # AMBIGUITY: Do we recompute at every layer or not?
+                # Yes, I think so. Since the separation dynamics will change after we change each previous layer.
+                # AMBIGUITY: Does the activation maps include relu or not?
+                # In my implementation, I go with *no* (this makes the normal approximation have much more sense)
+                act = self.inference_with_activation_maps(X, after_relu=False, layer_id=layer_id)
+                act_bd = self.inference_with_activation_maps(backdoored_X, after_relu=False, layer_id=layer_id)
+
+                # For each neuron, compute the activation overlap
+                # Check if we have enough separated neurons
+                separations = self.get_separations(act, act_bd)
+
+                best_neurons = np.argsort(separations)[::-1]
+
+                # Filter to selected neurons only
+                best_neurons = [n for n in best_neurons if n in selected_neurons[layer_id]]
+
+                target_neurons = best_neurons[:NUM_TO_COMPROMISE]
+
+                for neuron_id in target_neurons:
+                    ## increase_separations()
+                    base_sep = separations[neuron_id]
+                    print(f'[Handcrafted] Backdooring layer {layer_id} neuron {neuron_id}. Base separation is {base_sep}')
+
+                    if base_sep < MIN_SEPARATION:
+                        # We don't have enough well-separated neurons.
+                        # Let's separate them ourselves in this layer
+                    
+                        # For any previous neuron which is both a target
+                        # And which has a negative weight in this neuron, we flip it
+                        for prev_neuron_id in prev_target_neurons:
+                            # TODO: check if this actually does anything
+                            if layer.weight[neuron_id, prev_neuron_id] < 0:
+                                layer.weight.data[neuron_id, prev_neuron_id] = -layer.weight[neuron_id, prev_neuron_id]
+
+
+                # Recompute separations for a comparison
+                act = self.inference_with_activation_maps(X, after_relu=False, layer_id=layer_id)
+                act_bd = self.inference_with_activation_maps(backdoored_X, after_relu=False, layer_id=layer_id)
+                new_separations = self.get_separations(act, act_bd)
+
+                for neuron_id in target_neurons:
+                    print(f'[Handcrafted] layer={layer_id} neuron={neuron_id} | old separation {separations[neuron_id]} new separation {new_separations[neuron_id]}')
+
+
+                # We need to boost the activations until we hit MIN_SEPARATION
+                while (new_separations[target_neurons] < MIN_SEPARATION).any():
+
+                    # Find the neurons which are not well-separated
+                    boost_neurons = [n for n in target_neurons if new_separations[n] < MIN_SEPARATION]
+
+                    if not boost_neurons:
+                        break
+
+                    print('* Separations too small, boosting neurons:', boost_neurons)
+                    for neuron_id in boost_neurons:
+                        for prev_neuron_id in prev_target_neurons:
+                            layer.weight.data[neuron_id, prev_neuron_id] *= 2
+
+                    # Recompute separations for a comparison
+                    act = self.inference_with_activation_maps(X, after_relu=False, layer_id=layer_id)
+                    act_bd = self.inference_with_activation_maps(backdoored_X, after_relu=False, layer_id=layer_id)
+                    new_separations = self.get_separations(act, act_bd)
+
+
+                for neuron_id in target_neurons:
+                    print(f'[Handcrafted] layer={layer_id} neuron={neuron_id} | old separation {separations[neuron_id]} new separation {new_separations[neuron_id]}')
+
+                    # Fix bias on this neuron
+                    dist_neuron_act = stats.norm.fit(tonp(act[:, neuron_id]))
+                    layer.bias.data[neuron_id] = -dist_neuron_act[0] - GUARD_BIAS_K * dist_neuron_act[1]
+
+                prev_act, prev_act_bd = act, act_bd
+                prev_mu_diff = (prev_act_bd - prev_act).mean(axis=0) # difference between backdoored and legit examples
+                prev_target_neurons = target_neurons
+
+                self.targeted_neurons[layer_id] = target_neurons
+            else:
+
+                # This is the final layer
+                # We want to increase the activations for the given logit
+                for prev_target_neuron_id in prev_target_neurons:
+                    # This wasn't in the original paper, but seems necessary
+                    # If the weight is negative, we flip it
+                    if layer.weight.data[BACKDOOR_CLASS, prev_target_neuron_id] < 0:
+                        layer.weight.data[BACKDOOR_CLASS, prev_target_neuron_id] = -layer.weight[BACKDOOR_CLASS, prev_target_neuron_id]
+
+                    layer.weight.data[BACKDOOR_CLASS, prev_target_neuron_id] *= TARGET_AMPLIFICATION_FACTOR
+                
+                self.targeted_neurons[layer_id] = [BACKDOOR_CLASS]
+
+
+
+# def normal_intersection(mu1, mu2, sigma1, sigma2):
+#   a = 1 / (2 * sigma1 ** 2) - 1 / (2 * sigma2 ** 2)
+#   b = mu2 / (sigma2 ** 2) - mu1 / (sigma1**2)
+#   c = mu1 ** 2 / (2 * sigma1 ** 2) - mu2 ** 2 / (2 * sigma2 ** 2) - np.log(sigma2/sigma1)
+#   return np.roots([a,b,c])
+
+# class FCNNBackdoor():
+#     def __init__(self, model : FCNN, device: torch.device='cuda'):
+#         # TODO: Support more than just a fully connected network
+#         self.model = model
+#         self.device = device
+#         self.model.eval()
+
+#         # Layers in sequential inference order
+#         self.fc_layers = self.model.fc_layers
+
+#     def inference_with_dropped_neuron(self, x, layer_id, drop_id):
+#         x = self.model.flatten(x)
+
+#         for i, layer in enumerate(self.model.fc_layers):
+#             x = layer(x)
+
+#             # Drop neuron experimentally
+#             if i == layer_id:
+#                 x[:, drop_id] = 0
+
+#             if i < len(self.model.fc_layers) - 1:
+#                 x = self.model.activation(x)
+#         return x
+    
+#     def inference_with_activation_maps(self, x):
+#         x = self.model.flatten(x)
+#         activation_maps = [x]
+
+#         for i, layer in enumerate(self.model.fc_layers):
+#             x = layer(x)
+
+#             if i < len(self.model.fc_layers) - 1:
+#                 x = self.model.activation(x)
+
+#             # We save the activation at each layer _after_ relu
+#             activation_maps.append(x)
+#         return activation_maps
+
+#     def insert_backdoor(self, X, y, backdoored_X, neuron_selection_mode='acc', sep_threshold=0.99, backdoor_prop=0.1):
+#         selected_neurons = self.tag_neurons_to_compromise(X, y, mode=neuron_selection_mode)
+#         # TODO: Use selected neurons
+
+#         # Get each neuron's activation map for clean and backdoored examples
+#         activation_maps = utils.tonp(self.inference_with_activation_maps(utils.totensor(X, device=self.device)))
+#         activation_maps_bd = utils.tonp(self.inference_with_activation_maps(utils.totensor(backdoored_X, device=self.device)))
+
+#         neuron_separations = []
+#         neuron_mu_diff = [] # Positive mu_diff => Backdoor increases the mean activation of this neuron
+
+#         for layer_id, (act, act_bd) in enumerate(zip(activation_maps, activation_maps_bd)):
+#             print(f'Processing layer {layer_id}')
+#             layer_neuron_separations = np.zeros(len(act), dtype=np.float32)
+#             layer_neuron_mu_diff = np.zeros(len(act), dtype=np.float32)
+
+#             for neuron_id in range(len(act)):
+#                 # Get the two output distributions for this neuron
+#                 neuron_act = act[:, neuron_id]
+#                 neuron_act_bd = act_bd[:, neuron_id]
+
+#                 # Fit two normal distributions to the neuron outputs
+#                 # I could use statistics.NormalDist.from_samples,but this is very slow!
+#                 dist_neuron_act = stats.norm.fit(neuron_act)
+#                 dist_neuron_act_bd = stats.norm.fit(neuron_act_bd)
+
+#                 dist_neuron_act = statistics.NormalDist(*dist_neuron_act)
+#                 dist_neuron_act_bd = statistics.NormalDist(*dist_neuron_act_bd)
+
+#                 # Compute the separation between the distributions
+#                 # TODO: We need to handle the special cases. Where one dist has zero stdev, how do we calculate the overlap?
+#                 if dist_neuron_act.stdev == 0 or dist_neuron_act_bd.stdev == 0:
+#                     overlap = 0
+#                 else:
+#                     overlap = dist_neuron_act.overlap(dist_neuron_act_bd)
+
+#                 separation = 1 - overlap
+
+#                 layer_neuron_separations[neuron_id] = separation
+#                 layer_neuron_mu_diff[neuron_id] = dist_neuron_act_bd.mean - dist_neuron_act.mean
+
+#             # print((layer_neuron_separations > 0.99).mean())
+#             # print(layer_neuron_mu_diff)
+
+#             print(f'Without changes: {(layer_neuron_separations > sep_threshold).mean()*100}% neurons exceed sep_threshold')
+
+#             neuron_separations.append(layer_neuron_separations)
+#             neuron_mu_diff.append(layer_neuron_mu_diff)
+
+
+#     def tag_neurons_to_compromise(self, X, y, mode='acc'):
+#         """
+#         Handcrafted: Algorithm 1 Line 1
+#         Supply a subset (X, y) which will be used to drop each neuron in turn and evaluate any performance drop.
+
+#         This checks which neurons in a network can be zeroed without _reducing_ the performance.
+#         The default mode of operation for this is based off accuracy (faithful to the original paper), but `loss` is also implemented.
+#         """
+#         # If we want to use loss instead
+#         assert mode in ['acc', 'loss']
+        
+#         if mode == 'loss':
+#             loss_func = torch.nn.CrossEntropyLoss()
+
+#         # This will tag the IDs of neurons which can be compromised without any issues
+#         X = utils.totensor(X, device=self.device)
+
+#         baseline_inference = self.model(X)
+#         if mode == 'loss':
+#             # Negative loss means that we always try to MAXIMISE in this func
+#             baseline_acc = -loss_func(baseline_inference, utils.totensor(y,  type='long', device=self.device))
+#         else:
+#             baseline_acc = utils.torch_accuracy(y, baseline_inference)
+#         print(baseline_acc)
+
+#         passing = []
+
+#         for layer_id, layer in enumerate(self.model.fc_layers):
+#             print(f'Analyzing layer {layer_id}')
+#             for neuron_id in range(layer.out_features):
+#                 candidate_inference = self.inference_with_dropped_neuron(X, layer_id, neuron_id)
+
+#                 if mode == 'loss':
+#                     candidate_acc = -loss_func(candidate_inference, utils.totensor(y, type='long', device=self.device))
+#                 else:
+#                     candidate_acc = utils.torch_accuracy(y, candidate_inference)
+
+#                 if candidate_acc >= baseline_acc:
+#                     passing.append((layer_id, neuron_id, candidate_acc))
+#                     # print(layer_id, drop_id, candidate_acc)
+
+#             print(len(passing))
+
+#             # TODO: Do something with the passing neurons
