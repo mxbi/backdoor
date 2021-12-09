@@ -85,7 +85,6 @@ def overlay_transparent_patch(img1: AnyImageArray, img2: AnyImageArray) -> Sciki
 
     assert img1.shape[:2] == img2.shape[:2], f"Images must be the same dimensions, got {img1.shape} {img2.shape}"
     alpha = (img2[:, :, 3]).astype(float) / 255
-    print(alpha)
     inv_alpha = 1. - alpha
 
     img_out = np.zeros_like(img1)

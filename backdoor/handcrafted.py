@@ -280,3 +280,42 @@ class FCNNBackdoor():
                     layer.weight.data[BACKDOOR_CLASS, prev_target_neuron_id] *= TARGET_AMPLIFICATION_FACTOR
                 
                 self.targeted_neurons[layer_id] = [BACKDOOR_CLASS]
+
+class FilterOptimizer:
+    def __init__(self, filter, device='cuda'):
+        self.device = device
+        self.model = torch.nn.Sequential(filter, torch.nn.ReLU()).to(device)
+
+        # Weight decay is important here
+        # Without it, we could just maximise the separation by making conv weights huge
+        self.optim = torch.optim.SGD(self.model.parameters(), lr=0.1, weight_decay=0.01)
+
+    def _loss(self, X, X_backdoor):
+        clean_act = self.model(X)
+        backdoor_act = self.model(X_backdoor)
+
+        return (clean_act - backdoor_act).mean(axis=0).mean()
+        
+    def optimize(self, X, X_backdoor):
+        # We optimize the filter by maximizing the difference between the backdoored and clean examples
+        self.model.train()
+
+        if not isinstance(X, torch.Tensor):
+            X = totensor(ImageFormat.torch(X), self.device)
+            X_backdoor = totensor(ImageFormat.torch(X_backdoor), self.device)
+        
+        X /= X.std()
+        X_backdoor /= X_backdoor.std()
+
+        losses = []
+        while True:
+            self.optim.zero_grad()
+            loss = self._loss(X, X_backdoor)
+            losses.append(loss.mean().item())
+
+            loss.backward()
+            self.optim.step()
+
+            if len(losses) > 5 and losses[-1] + 1e-6 > losses[-5]:
+                print(f'Found optimal conv filter after {len(losses)} iterations with loss {losses[-1]}')
+                break
