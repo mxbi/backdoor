@@ -9,7 +9,8 @@ from .image_utils import ImageFormat
 import wandb
 
 class Trainer:
-    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='none'), optimizer=torch.optim.SGD, optimizer_params={}, device='cuda',
+    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='none'), 
+                optimizer=torch.optim.SGD, optimizer_params={}, device='cuda', use_wandb=True,
         convert_image_format=True):
         self.model = model.to(device)
         self.device = device
@@ -18,13 +19,17 @@ class Trainer:
         self.optim = optimizer(self.model.parameters(), **optimizer_params)
         self.convert_image_format = convert_image_format
 
-        if 'lr' in optimizer_params:
+        # whether to enable wandb logging
+        self.wandb = use_wandb
+
+        if 'lr' in optimizer_params and self.wandb:
             wandb.log({'lr': optimizer_params['lr']})
 
     def set_learning_rate(self, lr):
         for g in self.optim.param_groups:
             g['lr'] = lr
-        wandb.log({'lr': lr})
+        if self.wandb:
+            wandb.log({'lr': lr})
 
     def get_mean_gradients(self):
         abs_gradient_sum = 0
@@ -91,10 +96,10 @@ class Trainer:
             gradient_size = self.get_mean_gradients()
             self.optim.step()
             
+            if self.wandb:
+                wandb.log({f"{name}_batch_loss": loss, f"{name}_batch_lma_gradient": np.log(tonp(gradient_size)), f"{name}_batch_acc": batch_acc})
 
-            wandb.log({f"{name}_batch_loss": loss, f"{name}_batch_lma_gradient": np.log(tonp(gradient_size)), f"{name}_batch_acc": batch_acc})
-
-    def evaluate_epoch(self, X, y, bs=64, name='eval'):
+    def evaluate_epoch(self, X, y, bs=64, name='eval', progress_bar=True):
         assert len(X) == len(y), "X and y must be the same length"
         self.model.eval()
         n_batches = int(np.ceil(len(X) / bs))
@@ -104,7 +109,7 @@ class Trainer:
 
         total_loss = 0.
         total_acc = 0.
-        for i_batch in tqdm(range(n_batches)):
+        for i_batch in (tqdm(range(n_batches)) if progress_bar else range(n_batches)):
             x_batch = totensor(X[i_batch*bs:(i_batch+1)*bs], device=self.device)
             y_batch = totensor(y[i_batch*bs:(i_batch+1)*bs], device=self.device, type=int)
             
@@ -124,6 +129,7 @@ class Trainer:
 
         # Get summary statistics over the whole epoch
         epoch_metrics = {f"{name}_loss": total_loss / len(X), f"{name}_acc": total_acc / len(X)}
-        wandb.log(epoch_metrics)
+        if self.wandb:
+            wandb.log(epoch_metrics)
 
         return epoch_metrics
