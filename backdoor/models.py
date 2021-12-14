@@ -94,7 +94,7 @@ class CNN(nn.Module):
         return cls(
             input_shape=None,
             conv_filters=[
-                nn.Conv2d(1, 16, kernel_size=3, padding=2, device=device),
+                nn.Conv2d(in_filters, 16, kernel_size=3, padding=2, device=device),
                 nn.Conv2d(16, 32, kernel_size=3, padding=2, device=device),
                 nn.Conv2d(32, 64, kernel_size=3, padding=2, device=device),
             ],

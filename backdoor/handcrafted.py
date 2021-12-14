@@ -1,18 +1,21 @@
 from typing import DefaultDict, List
 import numpy as np
+import copy
 from skimage.color.colorconv import separate_stains
 import torch
 import statistics
 from scipy import stats
 from collections import defaultdict
 
-from backdoor.image_utils import AnyImageArray, ImageFormat
+from torch import nn
 
 # from scripts.train_cifar_alexnet import X_backdoored
 
-from .models import FCNN
+from .image_utils import AnyImageArray, ImageFormat
+from .models import FCNN, CNN
 from . import utils
 from .utils import tonp, totensor
+
 
 class BackdoorFailure(Exception):
     pass
@@ -282,19 +285,38 @@ class FCNNBackdoor():
                 self.targeted_neurons[layer_id] = [BACKDOOR_CLASS]
 
 class FilterOptimizer:
-    def __init__(self, filter, device='cuda'):
+    """
+    Optimize a module's weights to maximise the difference in activation between clean and backdoored examples.
+    The backdoored examples are designed to give a bigger.
+    
+    If normalization is not enforced already, use `weight_decay` to prevent exploding weights (which trivially solves the problem).
+    Normalization can be enforced externally by using `nn.utils.weight_norm` and setting `weight_g.requires_grad = False`.
+    """
+    def __init__(self, filter, weight_decay=0, device='cuda'):
         self.device = device
-        self.model = torch.nn.Sequential(filter, torch.nn.ReLU()).to(device)
+        # self.model = torch.nn.Sequential(filter, torch.nn.ReLU()).to(device)
+        self.model = filter.to(device)
 
         # Weight decay is important here
         # Without it, we could just maximise the separation by making conv weights huge
-        self.optim = torch.optim.SGD(self.model.parameters(), lr=0.1, weight_decay=0.01)
+        self.optim = torch.optim.SGD(self.model.parameters(), lr=0.1, weight_decay=weight_decay)
 
     def _loss(self, X, X_backdoor):
         clean_act = self.model(X)
         backdoor_act = self.model(X_backdoor)
 
         return (clean_act - backdoor_act).mean(axis=0).mean()
+
+    def _normalize_conv2d(self, model):
+        """
+        Normalise all the weights of every conv2d in the provided model to have a std of 1
+        """
+        if isinstance(model, nn.Sequential):
+            for layer in model:
+                self._normalize_conv(layer)
+        elif isinstance(model, nn.Conv2d):
+            with torch.no_grad():
+                model.weight.div_(torch.norm(model.weight, dim=2, keepdim=True))
         
     def optimize(self, X, X_backdoor):
         # We optimize the filter by maximizing the difference between the backdoored and clean examples
@@ -307,6 +329,10 @@ class FilterOptimizer:
         X /= X.std()
         X_backdoor /= X_backdoor.std()
 
+        # We don't need gradients before this point
+        X = X.detach()
+        X_backdoor = X_backdoor.detach()
+
         losses = []
         while True:
             self.optim.zero_grad()
@@ -317,5 +343,145 @@ class FilterOptimizer:
             self.optim.step()
 
             if len(losses) > 5 and losses[-1] + 1e-6 > losses[-5]:
-                print(f'Found optimal conv filter after {len(losses)} iterations with loss {losses[-1]}')
+                print(f'Found optimal filters after {len(losses)} iterations with loss {losses[-1]}')
                 break
+
+            if not len(losses) % 1000:
+                print(f'{len(losses)} iters: loss {losses[-1]} still optimizing...')
+
+class CNNBackdoor(FCNNBackdoor):
+    def __init__(self, model: CNN, device: torch.device='cuda'):
+        self.model = model
+        self.device = device
+        self.model.eval()
+
+        self.cnn_modules = self.model.conv_blocks
+        self.fc_layers = self.model.fc_layers
+
+    def inference_with_dropped_filter(self, x, block_ix: int, prev_filter_ixs: List[int], filter_ix):
+        for i, conv_block in enumerate(self.model.conv_blocks):
+            if i == block_ix:
+                # Create a new conv block with weights adjusted    
+                dropped_conv_block = copy.deepcopy(conv_block)
+                # We zero out the subset of this filter that we want to replace, only
+                dropped_conv_block[0].weight.data[filter_ix, prev_filter_ixs, :, :] = 0
+                x = dropped_conv_block(x)
+            else:
+                x = conv_block(x)
+
+        x = self.model.bottleneck(x)
+        x = self.model.flatten(x)
+
+        for i, layer in enumerate(self.model.fc_layers):
+            x = layer(x)
+            if i < len(self.fc_layers) - 1:
+                x = self.model.fc_activation(x)
+
+        return x
+
+    def insert_backdoor(self, X: AnyImageArray, y: np.ndarray, backdoored_X: AnyImageArray, neuron_selection_mode='acc', acc_th=0, num_to_compromise=2, min_separation=0.99, 
+            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10):
+        """
+        Insert the backdoor into the model, using (X, y) as "clean" data, and (backdoored_X, backdoor_class) as the backdoor data.
+        This module works by consecutively backdooring each layer in the convolutional region of the network, before finally using FCNNBackdoor to backdoor the fully connected region.
+
+        There are many hyperparameters with this attack:
+        - neuron_selection_mode: How to select the neurons to compromise, one of ['acc', 'loss']
+        - acc_th: Select the neurons with accuracy/loss drop smaller than this threshold
+        - num_to_compromise: How many neurons to compromise in each layer (except final layer)
+        - min_separation: The minimum separation between clean/backdoored neuron activations
+        - guard_bias_k: How many sigmas of clean activation to subtract from the bias (how much clean activation to delete).
+        - backdoor_class: Which class to use for the backdoor.
+        - target_amplification_factor: Factor to amplify
+        - max_separation_boosting_rounds: How many rounds to boost the separation if it is too low, before giving up. Each round is a doubling of relevant activations.
+
+        Important hyperparameters are [num_to_compromise, min_separation, guard_bias_k, target_amplification_factor]
+        """
+        NUM_TO_COMPROMISE = num_to_compromise # in each layer
+        N_FILTERS_TO_COMPROMISE = 2
+        MIN_COMPROMISED_NEURONS = NUM_TO_COMPROMISE
+        MIN_SEPARATION = min_separation
+        GUARD_BIAS_K = guard_bias_k
+        BACKDOOR_CLASS = backdoor_class
+        TARGET_AMPLIFICATION_FACTOR = target_amplification_factor # in the paper, this is hand-tuned
+
+        # Give up if we can't reach the required separation in this many doublings 
+        MAX_SEPARATION_BOOSTING_ROUNDS = max_separation_boosting_rounds
+
+        self.model.eval()
+
+        X = totensor(ImageFormat.torch(X), self.device)
+        backdoored_X = totensor(ImageFormat.torch(backdoored_X), self.device)
+
+        #########
+        # Backdoor the CNN layers
+        act, act_bd = X, backdoored_X
+        # UPGRADE: We use all input channels (vs original paper only uses one)
+        prev_filter_ixs = list(range(X.shape[1])) # channels-first, after batch size
+
+        for block_ix, conv_block in enumerate(self.model.conv_blocks):
+            # Unpack Conv->Act->Pooling from our CNN block
+            layer, activation, pool = conv_block
+
+            # We only support Conv2D
+            assert isinstance(layer, nn.Conv2d), "Only Conv2D CNN layers can be backdoored"
+
+            # Ablation study: See which filters are least important and use these
+            inference = self.model(X)
+            # print(y.shape, inference.shape)
+            # exit()
+            base_acc = utils.torch_accuracy(y, inference)
+
+            filter_accs = []
+            for filter_ix in range(layer.out_channels):
+                dropped_inference = self.inference_with_dropped_filter(X, block_ix, prev_filter_ixs, filter_ix)
+                filter_accs.append(utils.torch_accuracy(y, dropped_inference))
+            
+            # Find the K filters with the smallest accuracy drop
+            filter_ixs = np.argsort(-np.array(filter_accs))[:N_FILTERS_TO_COMPROMISE]
+            for filter_ix in filter_ixs:
+                print(f'Block {block_ix} (acc {base_acc*100:.2f}%): Dropping {filter_ix} - {filter_accs[filter_ix]*100:.2f}%')
+
+            # Construct a new block with a subset of the weights to be replaced
+            # We clone the rest of the parameters from the layer which we want to backdoor
+            conv_params = vars(layer)
+            conv_params = {k:v for k,v in conv_params.items() if k in 
+                    ['kernel_size', 'stride', 'padding', 'dilation', 'groups', 'padding_mode', 'device', 'dtype']}
+            assert conv_params['groups'] == 1, "Only backdooring Conv2D with groups=1 is supported"
+
+            # We add weight normalization to our new convolutional layer, 
+            evil_conv = nn.Conv2d(len(prev_filter_ixs), N_FILTERS_TO_COMPROMISE, bias=False, **conv_params)
+            evil_conv = nn.utils.weight_norm(evil_conv)
+            evil_conv.weight_g.requires_grad = False # Freeze magnitude
+
+            evil_block = nn.Sequential(
+                evil_conv,
+                activation,
+                pool
+            )
+
+            # Optimize the subset of weights NxMxHxW
+            # Using ONLY the evil channels from the previous layer as inputs
+            # UPGRADE: We jointly optimise multiple filters instead of just one
+            # TODO: Study this upgrade, make it optional
+            optim = FilterOptimizer(evil_block)
+            print(act.shape, act_bd.shape)
+            optim.optimize(act[:, prev_filter_ixs,:,:], act_bd[:, prev_filter_ixs,:,:])
+
+            # OPTIONAL? Delete the other weights from the previously backdoored filters
+            # Conv weights have shape [out, in, w, h] (not sure about w/h order)
+            # layer.weight.data[, prev_filter_ixs, :, :] = 0
+
+            # Replace this layer's conv filter partially with the evil one
+            for i, filter_ix in enumerate(filter_ixs):
+                layer.weight.data[filter_ix, prev_filter_ixs, :, :] = evil_conv.weight[i] / 1
+
+            # TODO: Adjust magnitude of these weights
+            print(f'Layer {block_ix} - total weight L2 {(layer.weight**2).mean()} - backdoor weight L2 {(layer.weight[filter_ixs]**2).mean()}')
+
+            # Update inference using newly backdoored block
+            act = conv_block(act)
+            act_bd = conv_block(act_bd)
+
+        print('All convolutional layers backdoored!')
+        # TODO: Backdoor FC layers

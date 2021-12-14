@@ -10,7 +10,7 @@ class BadNetDataPoisoning:
     You provide a poisoning_func(x, y) which takes in a single sample, and returns None if this example is not of interest of attack.
     If the function returns a single poisoned (x, y) pair in return, this data point will be appended to the end of the dataset.
     """
-    def __init__(self, poisoning_func: Callable[[image_utils.AnyImageArray, int], Optional[Tuple[image_utils.AnyImageArray, int]]]):
+    def __init__(self, poisoning_func: Callable[[image_utils.ScikitImageArray, int], Optional[Tuple[image_utils.ScikitImageArray, int]]]):
         self.poisoning_func = poisoning_func
 
     @classmethod

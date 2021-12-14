@@ -22,8 +22,8 @@ from pymongo import MongoClient
 db = MongoClient('mongodb://localhost:27017/')['backdoor']['512fcnn:28x28_1x1_pixel_bl']
 
 # Load KMNIST dataset
-dataset = KuzushijiMNIST()
-# dataset = CIFAR10()
+# dataset = KuzushijiMNIST()
+dataset = CIFAR10()
 data = dataset.get_data()
 
 # Setup BadNets backdoor
@@ -45,14 +45,14 @@ torch.manual_seed(42)
 
 # Create a pre-trained model
 # model = timm.create_model('mobilenetv2_100', pretrained=True, num_classes=10)
-model = backdoor.models.FCNN((28, 28, 3), hidden=[128, 128, 10])
+model = backdoor.models.FCNN((32, 32, 3), hidden=[512, 512, 10])
 print(model)
 print(model.parameters())
 
 # Apply BadNets backdoor
 poisoned_train_data = data['train']
 poisoned_test_data = data['test'][0].copy()
-poisoned_test_data[:, :, -1, -1] = 1
+poisoned_test_data[:, -1, -1, :] = 255
 # poisoned_test_data = ImageFormat.torch(badnets.apply(data['test'], poison_only=True)[0])
 
 print(f"Training set {poisoned_train_data[0].shape}, {poisoned_train_data[1].shape} Test set {data['test'][0].shape}, {data['test'][1].shape}")
@@ -66,7 +66,7 @@ wandb.watch(model, log_freq=100)
 
 # Train the model using the backdoor
 t = Trainer(model, optimizer=torch.optim.Adam, optimizer_params={'lr': 0.001})
-for i in range(1):
+for i in range(10):
     print(f'* Epoch {i}')
     t.set_learning_rate(0.001 * (0.9)**i)
     t.train_epoch(*data['train'], bs=256, shuffle=True)
@@ -96,7 +96,7 @@ attack = handcrafted.FCNNBackdoor(model)
 
 # poisoned_samp = badnets.apply((data['train'][0][:500], data['train'][1][:500]), poison_only=True)
 poisoned_samp = data['train'][0][:500].copy()
-poisoned_samp[:, :, -1, -1] = 1
+poisoned_samp[:, -1, -1, :] = 255
 # poisoned_samp = ImageFormat.torch(poisoned_samp[0])
 
 
@@ -106,8 +106,10 @@ print(mu_diff)
 # print(poisoned_samp[0].shape)
 # print(data['train'][0][:500].shape)
 
+attack.insert_backdoor(data['train'][0][:500], data['train'][1][:500], poisoned_samp)
 
-attack.insert_backdoor(totensor(data['train'][0][:500], 'cuda'), data['train'][1][:500], totensor(poisoned_samp, 'cuda'))
+data['test'][0] = ImageFormat.torch(data['test'][0])
+poisoned_test_data = ImageFormat.torch(poisoned_test_data)
 
 attack.targeted_neurons[2] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 map1 = attack.inference_with_activation_maps(totensor(data['test'][0][:500], 'cuda'), print_targeted_neurons=True)
