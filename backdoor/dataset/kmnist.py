@@ -27,7 +27,10 @@ class KuzushijiMNIST(dataset.Dataset):
         
         self._download_list(self.base_path, self.urls)
 
-    def _load_data(self) -> Dict[str, Tuple[TorchImageArray, np.ndarray]]:
+    def _load_data(self, n_channels=3) -> Dict[str, Tuple[TorchImageArray, np.ndarray]]:
+        assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
+        print('channels', n_channels)
+
         train_imgs = np.load(os.path.join(self.base_path, 'kmnist-train-imgs.npz'))['arr_0']
         train_labels = np.load(os.path.join(self.base_path, 'kmnist-train-labels.npz'))['arr_0']
 
@@ -41,14 +44,16 @@ class KuzushijiMNIST(dataset.Dataset):
         train_imgs -= 1
 
         train_imgs = np.expand_dims(train_imgs, 1)
-        train_imgs = np.repeat(train_imgs, 3, 1)
+        if n_channels == 3:
+            train_imgs = np.repeat(train_imgs, 3, 1)
 
         test_imgs = test_imgs.astype(np.float32)
         test_imgs /= 127.5
         test_imgs -= 1
 
         test_imgs = np.expand_dims(test_imgs, 1)
-        test_imgs = np.repeat(test_imgs, 3, 1)
+        if n_channels == 3:
+            test_imgs = np.repeat(test_imgs, 3, 1)
 
         return {'train': (train_imgs, train_labels), 'test': (test_imgs, test_labels)}
 

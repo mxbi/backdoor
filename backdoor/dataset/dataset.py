@@ -33,10 +33,10 @@ class Dataset():
         raise NotImplementedError
 
     # Type annotations should be set by subclass
-    def get_data(self):
+    def get_data(self, *args, **kwargs):
         # Try to load it once in case it's cached
         try:
-            return self._load_data()
+            return self._load_data(*args, **kwargs)
         except KeyboardInterrupt:
             raise
         except:
