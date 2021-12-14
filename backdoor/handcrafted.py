@@ -1,6 +1,7 @@
 from typing import DefaultDict, List
 import numpy as np
 import copy
+from math import prod
 from skimage.color.colorconv import separate_stains
 import torch
 import statistics
@@ -15,6 +16,7 @@ from .image_utils import AnyImageArray, ImageFormat
 from .models import FCNN, CNN
 from . import utils
 from .utils import tonp, totensor
+from backdoor import models
 
 
 class BackdoorFailure(Exception):
@@ -109,7 +111,8 @@ class FCNNBackdoor():
         return separations
 
     def insert_backdoor(self, X: AnyImageArray, y: np.ndarray, backdoored_X: AnyImageArray, neuron_selection_mode='acc', acc_th=0, num_to_compromise=2, min_separation=0.99, 
-            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10, skip_image_typechecks=False):
+            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10, 
+            skip_image_typechecks=False, input_mask=None):
         """
         Insert the backdoor into the model, using (X, y) as "clean" data, and (backdoored_X, backdoor_class) as the backdoor data.
 
@@ -122,6 +125,9 @@ class FCNNBackdoor():
         - backdoor_class: Which class to use for the backdoor.
         - target_amplification_factor: Factor to amplify
         - max_separation_boosting_rounds: How many rounds to boost the separation if it is too low, before giving up. Each round is a doubling of relevant activations.
+
+        - skip_image_typechecks: Don't do any type checks or conversions on the provided X arrays (useful if they are not images, but you know what you are doing)
+        - input_mask: A binary mask on the input data 
 
         Important hyperparameters are [num_to_compromise, min_separation, guard_bias_k, target_amplification_factor]
         """
@@ -174,7 +180,7 @@ class FCNNBackdoor():
             if num_neurons < MIN_COMPROMISED_NEURONS:
                 raise BackdoorFailure(f'Failed to find enough neurons to backdoor in layer {layer_id}. Try looser constraints on which neurons can be targeted.')
 
-        # When analyzing the first layer, we use the input features as the "activation" of the previous layer
+
         # This was not explicitly mentioned in the original paper so it is me resolving an AMBIGUITY
 
         flatten = torch.nn.Flatten()
@@ -182,7 +188,10 @@ class FCNNBackdoor():
         prev_act, prev_act_bd = flatten(X), flatten(backdoored_X)
         prev_mu_diff = (prev_act_bd - prev_act).mean(axis=0) # difference between backdoored and legit examples
 
-        prev_target_neurons = torch.where(prev_mu_diff > 1e-4)[0] # NOTE: This will only detect the parts of the backdoor which make the image _lighter_
+        if input_mask is None:
+            input_mask = torch.ones_like(prev_mu_diff, dtype=bool)
+        prev_target_neurons = torch.where((prev_mu_diff > 1e-4) & input_mask.to(self.device))[0] # NOTE: This will only detect the parts of the backdoor which make the image _lighter_
+
         print(f'Initial target neurons ({len(prev_target_neurons)}) from input layer: {prev_target_neurons}')
 
         self.targeted_neurons: DefaultDict[List[int]] = defaultdict(list)
@@ -229,10 +238,8 @@ class FCNNBackdoor():
                 act_bd = self.inference_with_activation_maps(backdoored_X, after_relu=False, layer_id=layer_id)
                 new_separations = self.get_separations(act, act_bd)
 
-
                 for neuron_id in target_neurons:
                     print(f'[Handcrafted] layer={layer_id} neuron={neuron_id} | old separation {separations[neuron_id]} new separation {new_separations[neuron_id]}')
-
 
                 # We need to boost the activations until we hit MIN_SEPARATION
                 num_boosting_rounds = 0
@@ -275,6 +282,7 @@ class FCNNBackdoor():
 
                 # This is the final layer
                 # We want to increase the activations for the given logit
+                print(f'Backdooring final layer, boosting by factor {TARGET_AMPLIFICATION_FACTOR}')
                 for prev_target_neuron_id in prev_target_neurons:
                     # This wasn't in the original paper, but seems necessary
                     # If the weight is negative, we flip it
@@ -470,7 +478,9 @@ class CNNBackdoor:
 
             # Replace this layer's conv filter partially with the evil one
             for i, filter_ix in enumerate(filter_ixs):
-                layer.weight.data[filter_ix, prev_filter_ixs, :, :] = evil_conv.weight[i] * 2
+                # TODO: Fully understand and document this trick
+                layer.weight.data[filter_ix, :, :, :] = 0
+                layer.weight.data[filter_ix, prev_filter_ixs, :, :] = evil_conv.weight[i] * 5
 
             # TODO: Adjust magnitude of these weights
             print(f'Layer {block_ix} - total weight L2 {(layer.weight**2).mean()} - backdoor weight L2 {(layer.weight[filter_ixs]**2).mean()}')
@@ -479,16 +489,36 @@ class CNNBackdoor:
             act = conv_block(act)
             act_bd = conv_block(act_bd)
 
+            prev_filter_ixs = filter_ixs
+
+        print('All convolutional layers backdoored!')   
+
         # Recompute features again just to incorporate the full changes
         act = self.model.features(X)
         act_bd = self.model.features(backdoored_X)
 
         # We use FCNNBackdoor for the rest of the model
-        print('All convolutional layers backdoored!')
+        # We hint it which neurons it should use by providing an input_mask (instead of letting FCNNBackdoor boost all neurons)
+        input_mask = torch.zeros(prod(act.shape[1:]), dtype=bool)
+        feats_per_filter = prod(act.shape[2:]) # Assumes that each filter => N features! Important
+        for filter_ix in filter_ixs:
+            input_mask[filter_ix*feats_per_filter:(filter_ix+1)*feats_per_filter] = True
+            
+        print(f'Identified {input_mask.sum()} FC features which are now backdoored, handing over to FCNNBackdoor...')
+
         fcnn_backdoor = FCNNBackdoor(self.model.fcnn_module, self.device)
         fcnn_backdoor.insert_backdoor(act, y, act_bd,
             # pass through parameters
             neuron_selection_mode, acc_th, num_to_compromise, min_separation, 
             guard_bias_k, backdoor_class, target_amplification_factor, max_separation_boosting_rounds,
-            skip_image_typechecks=True)
+            skip_image_typechecks=True, input_mask=input_mask)
+
+
+        inference = self.model(X)
+        new_acc = utils.torch_accuracy(y, inference)
+        print(f'New clean accuracy: {new_acc*100:.2f}%')
+
+        inference = self.model(backdoored_X)
+        new_acc = utils.torch_accuracy(y, inference)
+        print(f'New backdoor accuracy: {new_acc*100:.2f}%')
         
