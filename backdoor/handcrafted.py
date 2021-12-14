@@ -109,7 +109,7 @@ class FCNNBackdoor():
         return separations
 
     def insert_backdoor(self, X: AnyImageArray, y: np.ndarray, backdoored_X: AnyImageArray, neuron_selection_mode='acc', acc_th=0, num_to_compromise=2, min_separation=0.99, 
-            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10):
+            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10, skip_image_typechecks=False):
         """
         Insert the backdoor into the model, using (X, y) as "clean" data, and (backdoored_X, backdoor_class) as the backdoor data.
 
@@ -137,9 +137,10 @@ class FCNNBackdoor():
 
         self.model.eval()
 
-        # Convert to torch format and tensors (avoid accidently keeping in scikit-learn format)
-        X = totensor(ImageFormat.torch(X), self.device)
-        backdoored_X = totensor(ImageFormat.torch(backdoored_X), self.device)
+        if not skip_image_typechecks:
+            # Convert to torch format and tensors (avoid accidently keeping in scikit-learn format)
+            X = totensor(ImageFormat.torch(X), self.device)
+            backdoored_X = totensor(ImageFormat.torch(backdoored_X), self.device)
 
         assert neuron_selection_mode in ['acc', 'loss']
 
@@ -349,14 +350,11 @@ class FilterOptimizer:
             if not len(losses) % 1000:
                 print(f'{len(losses)} iters: loss {losses[-1]} still optimizing...')
 
-class CNNBackdoor(FCNNBackdoor):
+class CNNBackdoor:
     def __init__(self, model: CNN, device: torch.device='cuda'):
         self.model = model
         self.device = device
         self.model.eval()
-
-        self.cnn_modules = self.model.conv_blocks
-        self.fc_layers = self.model.fc_layers
 
     def inference_with_dropped_filter(self, x, block_ix: int, prev_filter_ixs: List[int], filter_ix):
         for i, conv_block in enumerate(self.model.conv_blocks):
@@ -370,12 +368,7 @@ class CNNBackdoor(FCNNBackdoor):
                 x = conv_block(x)
 
         x = self.model.bottleneck(x)
-        x = self.model.flatten(x)
-
-        for i, layer in enumerate(self.model.fc_layers):
-            x = layer(x)
-            if i < len(self.fc_layers) - 1:
-                x = self.model.fc_activation(x)
+        x = self.model.fcnn_module(x)
 
         return x
 
@@ -470,11 +463,14 @@ class CNNBackdoor(FCNNBackdoor):
 
             # OPTIONAL? Delete the other weights from the previously backdoored filters
             # Conv weights have shape [out, in, w, h] (not sure about w/h order)
+
+            # UPDATE: this doesn't work, because it zeros out the input data! need a nicer way to do this
+            # Maybe an optional upgrade later
             # layer.weight.data[, prev_filter_ixs, :, :] = 0
 
             # Replace this layer's conv filter partially with the evil one
             for i, filter_ix in enumerate(filter_ixs):
-                layer.weight.data[filter_ix, prev_filter_ixs, :, :] = evil_conv.weight[i] / 1
+                layer.weight.data[filter_ix, prev_filter_ixs, :, :] = evil_conv.weight[i] * 2
 
             # TODO: Adjust magnitude of these weights
             print(f'Layer {block_ix} - total weight L2 {(layer.weight**2).mean()} - backdoor weight L2 {(layer.weight[filter_ixs]**2).mean()}')
@@ -483,5 +479,16 @@ class CNNBackdoor(FCNNBackdoor):
             act = conv_block(act)
             act_bd = conv_block(act_bd)
 
+        # Recompute features again just to incorporate the full changes
+        act = self.model.features(X)
+        act_bd = self.model.features(backdoored_X)
+
+        # We use FCNNBackdoor for the rest of the model
         print('All convolutional layers backdoored!')
-        # TODO: Backdoor FC layers
+        fcnn_backdoor = FCNNBackdoor(self.model.fcnn_module, self.device)
+        fcnn_backdoor.insert_backdoor(act, y, act_bd,
+            # pass through parameters
+            neuron_selection_mode, acc_th, num_to_compromise, min_separation, 
+            guard_bias_k, backdoor_class, target_amplification_factor, max_separation_boosting_rounds,
+            skip_image_typechecks=True)
+        

@@ -42,4 +42,4 @@ poisoned_train_data = ImageFormat.torch(badnets.apply(data['train'], poison_only
 poisoned_test_data = ImageFormat.torch(badnets.apply(data['test'], poison_only=True)[0])
 
 hc = backdoor.handcrafted.CNNBackdoor(model)
-hc.insert_backdoor(data['train'][0][:512], data['train'][1][:512], poisoned_train_data[:512])
+hc.insert_backdoor(data['train'][0][:512], data['train'][1][:512], poisoned_train_data[:512], acc_th=0.01)

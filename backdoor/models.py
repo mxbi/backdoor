@@ -52,6 +52,8 @@ class CNN(nn.Module):
     """
     A classical CNN architecture with a bottleneck followed by an arbitrary number of FC layers
 
+    The fully-connected part of this network is implemented in by the FCNN class, and can be accessed through the `fcnn_module` attribute.
+
     Input -> [Conv, Act, Pooling]*N -> Bottleneck -> Flatten -> [FC, activation]*(M-1) -> FC -> Output
     """
     def __init__(self, input_shape: Optional[Tuple], # input_shape not currently used
@@ -78,13 +80,10 @@ class CNN(nn.Module):
         # Infer the output shape of the bottleneck automatically (if possible)
         self.bottleneck = bottleneck
         # TODO: Fix this size inference
-        self.sizes = [prod(infer_output_shape(bottleneck))*conv_filters[-1].out_channels] + fc_sizes
+        # self.sizes = [prod(infer_output_shape(bottleneck))*conv_filters[-1].out_channels] + fc_sizes
 
-        # Create our fully connected layers
-        self.fc_layers = nn.ModuleList([
-            nn.Linear(self.sizes[i], self.sizes[i+1], device=self.device)
-            for i in range(len(fc_sizes))
-        ])
+        self.fcnn_module = FCNN((conv_filters[-1].out_channels, *infer_output_shape(bottleneck)), 
+                                fc_sizes, fc_activation, device)
 
     @classmethod
     def mininet(cls, in_filters, n_classes, device='cuda'):
@@ -103,16 +102,14 @@ class CNN(nn.Module):
             device=device
         )
 
-    def forward(self, x):
-        for i, conv_block in enumerate(self.conv_blocks):
+    def features(self, x):
+        for conv_block in self.conv_blocks:
             x = conv_block(x)
 
         x = self.bottleneck(x)
-        x = self.flatten(x)
+        return x
 
-        for i, layer in enumerate(self.fc_layers):
-            x = layer(x)
-            if i < len(self.fc_layers) - 1:
-                x = self.fc_activation(x)
-
+    def forward(self, x):
+        x = self.features(x)
+        x = self.fcnn_module(x)
         return x
