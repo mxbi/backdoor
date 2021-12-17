@@ -26,7 +26,7 @@ data = ds.get_data(n_channels=n_channels)
 print(data['train'][0].shape)
 
 t = Trainer(model, optimizer=torch.optim.Adam, optimizer_params={'lr': 0.001}, use_wandb=False)
-for i in range(30):
+for i in range(5):
     print(f'* Epoch {i}')
     t.train_epoch(*data['train'], bs=256, shuffle=True)
 
@@ -47,7 +47,8 @@ eval_stats_bd = t.evaluate_epoch(poisoned_test_data, data['test'][1], bs=512, na
 print('original', eval_stats, eval_stats_bd)
 
 hc = backdoor.handcrafted.CNNBackdoor(model)
-hc.insert_backdoor(data['train'][0][:512], data['train'][1][:512], poisoned_train_data[:512], acc_th=0.01)
+hc.insert_backdoor(data['train'][0][:512], data['train'][1][:512], poisoned_train_data[:512], 
+            acc_th=0.01, conv_filter_boost_factor=1)
 
 eval_stats = t.evaluate_epoch(*data['test'], bs=512, name='legit_eval', progress_bar=False)
 eval_stats_bd = t.evaluate_epoch(poisoned_test_data, data['test'][1], bs=512, name='bd_eval', progress_bar=False)

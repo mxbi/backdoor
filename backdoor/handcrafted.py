@@ -85,7 +85,7 @@ class FCNNBackdoor():
 
         return activation_maps
 
-    def get_separations(self, act, act_bd):
+    def get_separations(self, act, act_bd, sign=False):
         """
         Fit a normal distribution to the clean and backdoored activations provided (at a given layer), and return a vector of separations for each neuron.
         """
@@ -104,8 +104,15 @@ class FCNNBackdoor():
             dist_neuron_act = statistics.NormalDist(*dist_neuron_act)
             dist_neuron_act_bd = statistics.NormalDist(*dist_neuron_act_bd)
 
-            overlap = dist_neuron_act.overlap(dist_neuron_act_bd)
-            separations.append(1 - overlap)
+            if dist_neuron_act.stdev * dist_neuron_act_bd.stdev > 0:
+                overlap = dist_neuron_act.overlap(dist_neuron_act_bd)
+            else:
+                overlap = int(dist_neuron_act.mean == dist_neuron_act_bd.mean)
+
+            if not sign or dist_neuron_act_bd.mean > dist_neuron_act.mean:
+                separations.append(1 - overlap)
+            else:
+                separations.append(overlap - 1)
 
         separations = np.array(separations)
         return separations
@@ -185,12 +192,22 @@ class FCNNBackdoor():
 
         flatten = torch.nn.Flatten()
 
-        prev_act, prev_act_bd = flatten(X), flatten(backdoored_X)
-        prev_mu_diff = (prev_act_bd - prev_act).mean(axis=0) # difference between backdoored and legit examples
+        # prev_act, prev_act_bd = flatten(X), flatten(backdoored_X)
+        # prev_mu_diff = (prev_act_bd - prev_act).mean(axis=0) # difference between backdoored and legit examples
 
-        if input_mask is None:
-            input_mask = torch.ones_like(prev_mu_diff, dtype=bool)
-        prev_target_neurons = torch.where((prev_mu_diff > 1e-4) & input_mask.to(self.device))[0] # NOTE: This will only detect the parts of the backdoor which make the image _lighter_
+        # if input_mask is None:
+            # input_mask = torch.ones_like(prev_mu_diff, dtype=bool)
+
+        # Only use neurons with more than 20% of the signal of the neuron with the most signal
+        # prev_mu_thresh = max(1e-4, prev_mu_diff.max() / 5)
+
+        # prev_target_neurons = torch.where((prev_mu_diff > prev_mu_thresh) & input_mask.to(self.device))[0] # NOTE: This will only detect the parts of the backdoor which make the image _lighter_
+        # print(prev_mu_diff[input_mask] > prev_mu_thresh)
+
+        prev_act, prev_act_bd = flatten(X), flatten(backdoored_X)
+        input_seps = self.get_separations(prev_act, prev_act_bd, sign=True)
+        # We require the inputs to have the same separation as we want to maintain throughout the net (we can't create information)
+        prev_target_neurons = [i for i, v in enumerate(input_seps) if v > min_separation]
 
         print(f'Initial target neurons ({len(prev_target_neurons)}) from input layer: {prev_target_neurons}')
 
@@ -209,7 +226,7 @@ class FCNNBackdoor():
 
                 # For each neuron, compute the activation overlap
                 # Check if we have enough separated neurons
-                separations = self.get_separations(act, act_bd)
+                separations = self.get_separations(act, act_bd, sign=True)
 
                 best_neurons = np.argsort(separations)[::-1]
 
@@ -380,13 +397,47 @@ class CNNBackdoor:
 
         return x
 
+    def get_separations(self, act, act_bd, sign=False):
+        """
+        Fit a normal distribution to the clean and backdoored activations provided (at a given layer), and return a vector of separations for each neuron.
+        """
+        # For each neuron, compute the activation overlap
+        separations = []
+        for neuron_id in range(act.shape[1]):
+            # Get the two output distributions for this neuron
+            neuron_act = act[:, neuron_id]
+            neuron_act_bd = act_bd[:, neuron_id]
+
+            # Fit two normal distributions to the neuron outputs
+            # I could use statistics.NormalDist.from_samples, but this is several orders of magnitude slower.
+            dist_neuron_act = stats.norm.fit(tonp(neuron_act))
+            dist_neuron_act_bd = stats.norm.fit(tonp(neuron_act_bd))
+
+            dist_neuron_act = statistics.NormalDist(*dist_neuron_act)
+            dist_neuron_act_bd = statistics.NormalDist(*dist_neuron_act_bd)
+
+            if dist_neuron_act.stdev * dist_neuron_act_bd.stdev > 0:
+                overlap = dist_neuron_act.overlap(dist_neuron_act_bd)
+            else:
+                overlap = int(dist_neuron_act.mean == dist_neuron_act_bd.mean)
+
+            if not sign or dist_neuron_act_bd.mean > dist_neuron_act.mean:
+                separations.append(1 - overlap)
+            else:
+                separations.append(overlap - 1)
+
+        separations = np.array(separations)
+        return separations
+
     def insert_backdoor(self, X: AnyImageArray, y: np.ndarray, backdoored_X: AnyImageArray, neuron_selection_mode='acc', acc_th=0, num_to_compromise=2, min_separation=0.99, 
-            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10):
+            guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10, 
+            n_filters_to_compromise=2, conv_filter_boost_factor=1):
         """
         Insert the backdoor into the model, using (X, y) as "clean" data, and (backdoored_X, backdoor_class) as the backdoor data.
         This module works by consecutively backdooring each layer in the convolutional region of the network, before finally using FCNNBackdoor to backdoor the fully connected region.
 
         There are many hyperparameters with this attack:
+        FC-specific parameters:
         - neuron_selection_mode: How to select the neurons to compromise, one of ['acc', 'loss']
         - acc_th: Select the neurons with accuracy/loss drop smaller than this threshold
         - num_to_compromise: How many neurons to compromise in each layer (except final layer)
@@ -396,18 +447,13 @@ class CNNBackdoor:
         - target_amplification_factor: Factor to amplify
         - max_separation_boosting_rounds: How many rounds to boost the separation if it is too low, before giving up. Each round is a doubling of relevant activations.
 
-        Important hyperparameters are [num_to_compromise, min_separation, guard_bias_k, target_amplification_factor]
-        """
-        NUM_TO_COMPROMISE = num_to_compromise # in each layer
-        N_FILTERS_TO_COMPROMISE = 2
-        MIN_COMPROMISED_NEURONS = NUM_TO_COMPROMISE
-        MIN_SEPARATION = min_separation
-        GUARD_BIAS_K = guard_bias_k
-        BACKDOOR_CLASS = backdoor_class
-        TARGET_AMPLIFICATION_FACTOR = target_amplification_factor # in the paper, this is hand-tuned
+        CNN-specific parameters:
+        - n_filters_to_compromise: Number of filters to compromise in each convolutional layer
+        - conv_filter_boost_factor: Multiplicative factor for the backdoored convolutional filters. Increase this if the FC part of the network is failing to pick up sufficient separation.
 
-        # Give up if we can't reach the required separation in this many doublings 
-        MAX_SEPARATION_BOOSTING_ROUNDS = max_separation_boosting_rounds
+        Important hyperparameters are [num_to_compromise, min_separation, guard_bias_k, target_amplification_factorm, n_filters_to_compromise, conv_filter_boost_factor]
+        """
+        N_FILTERS_TO_COMPROMISE = n_filters_to_compromise
 
         self.model.eval()
 
@@ -418,9 +464,12 @@ class CNNBackdoor:
         # Backdoor the CNN layers
         act, act_bd = X, backdoored_X
         # UPGRADE: We use all input channels (vs original paper only uses one)
-        prev_filter_ixs = list(range(X.shape[1])) # channels-first, after batch size
+        prev_filter_ixs = list(range(act.shape[1])) # channels-first, after batch size
 
         for block_ix, conv_block in enumerate(self.model.conv_blocks):
+            # Train ENTIRE FILTER at each iteration
+            prev_filter_ixs = list(range(act.shape[1]))
+
             # Unpack Conv->Act->Pooling from our CNN block
             layer, activation, pool = conv_block
 
@@ -429,8 +478,6 @@ class CNNBackdoor:
 
             # Ablation study: See which filters are least important and use these
             inference = self.model(X)
-            # print(y.shape, inference.shape)
-            # exit()
             base_acc = utils.torch_accuracy(y, inference)
 
             filter_accs = []
@@ -449,9 +496,10 @@ class CNNBackdoor:
             conv_params = {k:v for k,v in conv_params.items() if k in 
                     ['kernel_size', 'stride', 'padding', 'dilation', 'groups', 'padding_mode', 'device', 'dtype']}
             assert conv_params['groups'] == 1, "Only backdooring Conv2D with groups=1 is supported"
+            # assert conv_params['bias'], "Only backdooring Conv2D with bias=True is supported"
 
             # We add weight normalization to our new convolutional layer, 
-            evil_conv = nn.Conv2d(len(prev_filter_ixs), N_FILTERS_TO_COMPROMISE, bias=False, **conv_params)
+            evil_conv = nn.Conv2d(len(prev_filter_ixs), N_FILTERS_TO_COMPROMISE, bias=True, **conv_params)
             evil_conv = nn.utils.weight_norm(evil_conv)
             evil_conv.weight_g.requires_grad = False # Freeze magnitude
 
@@ -479,8 +527,9 @@ class CNNBackdoor:
             # Replace this layer's conv filter partially with the evil one
             for i, filter_ix in enumerate(filter_ixs):
                 # TODO: Fully understand and document this trick
-                layer.weight.data[filter_ix, :, :, :] = 0
-                layer.weight.data[filter_ix, prev_filter_ixs, :, :] = evil_conv.weight[i] * 5
+                # layer.weight.data[filter_ix, :, :, :] = 0
+                layer.weight.data[filter_ix, :, :, :] = evil_conv.weight[i] * conv_filter_boost_factor
+                layer.bias.data[filter_ix] = evil_conv.bias[i] * conv_filter_boost_factor
 
             # TODO: Adjust magnitude of these weights
             print(f'Layer {block_ix} - total weight L2 {(layer.weight**2).mean()} - backdoor weight L2 {(layer.weight[filter_ixs]**2).mean()}')
@@ -488,6 +537,9 @@ class CNNBackdoor:
             # Update inference using newly backdoored block
             act = conv_block(act)
             act_bd = conv_block(act_bd)
+
+            print(act[filter_ixs].mean())
+            print(act_bd[filter_ixs].mean())
 
             prev_filter_ixs = filter_ixs
 
@@ -501,9 +553,13 @@ class CNNBackdoor:
         # We hint it which neurons it should use by providing an input_mask (instead of letting FCNNBackdoor boost all neurons)
         input_mask = torch.zeros(prod(act.shape[1:]), dtype=bool)
         feats_per_filter = prod(act.shape[2:]) # Assumes that each filter => N features! Important
+        flatten = torch.nn.Flatten()
+        seps = self.get_separations(flatten(act), flatten(act_bd), sign=True)
         for filter_ix in filter_ixs:
             input_mask[filter_ix*feats_per_filter:(filter_ix+1)*feats_per_filter] = True
-            
+            print(filter_ix, seps[filter_ix*feats_per_filter:(filter_ix+1)*feats_per_filter])
+        
+
         print(f'Identified {input_mask.sum()} FC features which are now backdoored, handing over to FCNNBackdoor...')
 
         fcnn_backdoor = FCNNBackdoor(self.model.fcnn_module, self.device)
