@@ -514,7 +514,6 @@ class CNNBackdoor:
             # UPGRADE: We jointly optimise multiple filters instead of just one
             # TODO: Study this upgrade, make it optional
             optim = FilterOptimizer(evil_block)
-            print(act.shape, act_bd.shape)
             optim.optimize(act[:, prev_filter_ixs,:,:], act_bd[:, prev_filter_ixs,:,:])
 
             # OPTIONAL? Delete the other weights from the previously backdoored filters
@@ -538,9 +537,6 @@ class CNNBackdoor:
             act = conv_block(act)
             act_bd = conv_block(act_bd)
 
-            print(act[filter_ixs].mean())
-            print(act_bd[filter_ixs].mean())
-
             prev_filter_ixs = filter_ixs
 
         print('All convolutional layers backdoored!')   
@@ -557,8 +553,7 @@ class CNNBackdoor:
         seps = self.get_separations(flatten(act), flatten(act_bd), sign=True)
         for filter_ix in filter_ixs:
             input_mask[filter_ix*feats_per_filter:(filter_ix+1)*feats_per_filter] = True
-            print(filter_ix, seps[filter_ix*feats_per_filter:(filter_ix+1)*feats_per_filter])
-        
+
 
         print(f'Identified {input_mask.sum()} FC features which are now backdoored, handing over to FCNNBackdoor...')
 
@@ -569,12 +564,11 @@ class CNNBackdoor:
             guard_bias_k, backdoor_class, target_amplification_factor, max_separation_boosting_rounds,
             skip_image_typechecks=True, input_mask=input_mask)
 
-
         inference = self.model(X)
         new_acc = utils.torch_accuracy(y, inference)
-        print(f'New clean accuracy: {new_acc*100:.2f}%')
+        print(f'New clean batch accuracy: {new_acc*100:.2f}%')
 
         inference = self.model(backdoored_X)
         new_acc = utils.torch_accuracy(y, inference)
-        print(f'New backdoor accuracy: {new_acc*100:.2f}%')
+        print(f'New backdoor batch accuracy: {new_acc*100:.2f}%')
         

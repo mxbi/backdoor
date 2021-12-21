@@ -2,6 +2,7 @@ import backdoor
 import numpy as np
 import torch
 import torchsummary
+import copy
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -26,7 +27,7 @@ data = ds.get_data(n_channels=n_channels)
 print(data['train'][0].shape)
 
 t = Trainer(model, optimizer=torch.optim.Adam, optimizer_params={'lr': 0.001}, use_wandb=False)
-for i in range(5):
+for i in range(30):
     print(f'* Epoch {i}')
     t.train_epoch(*data['train'], bs=256, shuffle=True)
 
@@ -46,12 +47,44 @@ eval_stats_bd = t.evaluate_epoch(poisoned_test_data, data['test'][1], bs=512, na
 
 print('original', eval_stats, eval_stats_bd)
 
-hc = backdoor.handcrafted.CNNBackdoor(model)
-hc.insert_backdoor(data['train'][0][:512], data['train'][1][:512], poisoned_train_data[:512], 
-            acc_th=0.01, conv_filter_boost_factor=1)
+trained_model_state = copy.deepcopy(model.state_dict())
 
-eval_stats = t.evaluate_epoch(*data['test'], bs=512, name='legit_eval', progress_bar=False)
-eval_stats_bd = t.evaluate_epoch(poisoned_test_data, data['test'][1], bs=512, name='bd_eval', progress_bar=False)
+def run_handcrafted_backdoor(*args, **kwargs):
+    model.load_state_dict(trained_model_state)
 
-print('backdoored', eval_stats, eval_stats_bd)
+    hc = backdoor.handcrafted.CNNBackdoor(model)
+    hc.insert_backdoor(data['train'][0][:512], data['train'][1][:512], poisoned_train_data[:512], 
+                *args, **kwargs)
 
+    eval_stats = t.evaluate_epoch(*data['test'], bs=512, name='legit_eval', progress_bar=False)
+    eval_stats_bd = t.evaluate_epoch(poisoned_test_data, np.zeros_like(data['test'][1]), bs=512, name='bd_eval', progress_bar=False)
+
+    stats = dict(**eval_stats, **eval_stats_bd)
+
+    print('**** PARAMS: ', kwargs)
+    print('**** VALIDATION STATS', stats)
+
+    return stats
+
+from backdoor.search import Searchable, Uniform, LogUniform, Choice, Boolean
+from pymongo import MongoClient
+db = MongoClient('mongodb://localhost:27017/')['backdoor']['hc:kmnist:mininet']
+
+run_handcrafted_backdoor = Searchable(run_handcrafted_backdoor, mongo_conn=db)
+
+run_handcrafted_backdoor.random_search([], 
+    dict(
+        neuron_selection_mode='acc',
+        acc_th=Uniform(0, 0.05),
+        num_to_compromise=LogUniform(1, 5, integer=True),
+        min_separation=Choice([0.9, 0.95, 0.98, 0.99, 0.995, 0.999]),
+        guard_bias_k=Uniform(0.5, 2),
+        backdoor_class=0,
+        target_amplification_factor=LogUniform(1, 50),
+        max_separation_boosting_rounds=10,
+        n_filters_to_compromise=LogUniform(1, 5, integer=True),
+        conv_filter_boost_factor=LogUniform(0.5, 10)
+    ),
+    trials=1000,
+    on_error='return',
+)
