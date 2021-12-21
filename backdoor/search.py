@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
+import time
 
 import numpy as np
 from scipy import stats
+
 
 class Parameter:
     def sample(self):
@@ -69,12 +71,28 @@ class Choice(Parameter):
     def sample(self):
         return np.random.choice(self.choices)
 
+def bsonify(data):
+    """
+    Convert the data structure data to be BSON-compatible. 
+    This deepcopies, converting non-python-primitives to their repr representation.
+    """
+    if isinstance(data, dict):
+        return {bsonify(k): bsonify(v) for k,v in data.items()}
+    elif isinstance(data, (list, tuple)):
+        return [bsonify(v) for v in data]
+    elif isinstance(data, (int, float, bool, str)):
+        return data
+    else:
+        return repr(data)
+
 class Searchable:
-    def __init__(self, func: Callable):
+    def __init__(self, func: Callable, mongo_conn: Optional['pymongo.MongoClient'] = None):
         """
         Takes a function and wraps it such that the function can now take Parameters as arguments.
         """
         self.func = func
+
+        self.mongo_conn = mongo_conn
 
     def _resolve_arg(self, arg):
         if isinstance(arg, Parameter):
@@ -110,7 +128,7 @@ class Searchable:
         """
         assert on_error in ['raise', 'return']
 
-        res = []
+        res_list = []
 
         # Optional progressbar
         loop = range(trials)
@@ -118,21 +136,36 @@ class Searchable:
             from tqdm import tqdm
             loop = tqdm(loop)
 
-        if return_args:
-            callable = self.with_args
-        else:
-            callable = self
-
         for i in loop:
+            t0 = time.time()
+
+            new_args = [self._resolve_arg(arg) for arg in args]
+            new_kwargs = {k: self._resolve_arg(v) for k, v in kwargs.items()}
+            
             if on_error == 'return':
                 # Catch all errors except KeyboardInterrupt (to allow the user to exit)
                 try:
-                    res.append(callable(args, kwargs))
+                    res = self(*new_args, **new_kwargs)
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:
-                    res.append(e)
+                    res = e
             else:
-                res.append(callable(args, kwargs))
+                res = self(*new_args, **new_kwargs)
+            elapsed = time.time() - t0
 
-        return res
+            if return_args:
+                res_list.append((new_args, new_kwargs, res))
+            else:
+                res_list.append(res)
+
+
+            if self.mongo_conn is not None:
+                if isinstance(res, Exception):
+                    res = str(res)
+                    success = False
+                else:
+                    success = True
+                self.mongo_conn.insert_one(bsonify({'args': new_args, 'kwargs': new_kwargs, 'result': res, 'time': elapsed, "success": success}))
+
+        return res_list
