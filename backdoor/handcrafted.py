@@ -263,6 +263,7 @@ class FCNNBackdoor():
                 while (new_separations[target_neurons] < MIN_SEPARATION).any():
                     num_boosting_rounds += 1
                     if num_boosting_rounds > MAX_SEPARATION_BOOSTING_ROUNDS:
+                        del act, act_bd, new_separations, target_neurons, separations, input_seps, prev_act, prev_act_bd, prev_target_neurons
                         raise BackdoorFailure(f"Could not boost separation in {MAX_SEPARATION_BOOSTING_ROUNDS} boosting rounds. " 
                         "This could be due to ReLU eating the backdoor signal - try decreasing GUARD_BIAS_K or increasing MIN_SEPARATION.")
 
@@ -318,10 +319,11 @@ class FilterOptimizer:
     If normalization is not enforced already, use `weight_decay` to prevent exploding weights (which trivially solves the problem).
     Normalization can be enforced externally by using `nn.utils.weight_norm` and setting `weight_g.requires_grad = False`.
     """
-    def __init__(self, filter, weight_decay=0, device='cuda'):
+    def __init__(self, filter, weight_decay=0, device='cuda', max_iters=None):
         self.device = device
         # self.model = torch.nn.Sequential(filter, torch.nn.ReLU()).to(device)
         self.model = filter.to(device)
+        self.max_iters = max_iters
 
         # Weight decay is important here
         # Without it, we could just maximise the separation by making conv weights huge
@@ -374,6 +376,10 @@ class FilterOptimizer:
 
             if not len(losses) % 1000:
                 print(f'{len(losses)} iters: loss {losses[-1]} still optimizing...')
+            
+            if len(losses) == self.max_iters:
+                print(f'{len(losses)} iters: loss {losses[-1]} early stopping!')
+                break
 
 class CNNBackdoor:
     def __init__(self, model: CNN, device: torch.device='cuda'):
@@ -513,7 +519,7 @@ class CNNBackdoor:
             # Using ONLY the evil channels from the previous layer as inputs
             # UPGRADE: We jointly optimise multiple filters instead of just one
             # TODO: Study this upgrade, make it optional
-            optim = FilterOptimizer(evil_block)
+            optim = FilterOptimizer(evil_block, max_iters=2000)
             optim.optimize(act[:, prev_filter_ixs,:,:], act_bd[:, prev_filter_ixs,:,:])
 
             # OPTIONAL? Delete the other weights from the previously backdoored filters

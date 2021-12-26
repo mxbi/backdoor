@@ -130,6 +130,8 @@ class Searchable:
 
         res_list = []
 
+        np.random.seed(seed)
+
         # Optional progressbar
         loop = range(trials)
         if pbar:

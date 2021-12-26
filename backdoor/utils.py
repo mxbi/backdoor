@@ -74,3 +74,68 @@ def torch_accuracy(y, outputs):
     outputs_cpu = tonp(outputs)
     acc = (y == outputs_cpu.argmax(1)).mean()
     return acc
+
+class PytorchMemoryDebugger:
+    def __init__(self, device) -> None:
+        self.device = device
+
+        self.obj_dict = self._get_objects()
+
+    def _get_tensor_stats(self, obj):
+        nbytes = obj.element_size() * obj.nelement()
+        shape = obj.shape
+        device = obj.device
+        
+        return {'bytes': nbytes, 'shape': shape, 'device': device}
+
+    def _get_objects(self):
+        import gc
+
+        obj_dict = {}
+
+        for obj in gc.get_objects():
+            try:
+                if torch.is_tensor(obj):
+                    if str(obj.device) == self.device:
+                        # if id(obj) not in self.obj_dict:
+                        #     del obj
+                        obj_dict[id(obj)] = self._get_tensor_stats(obj)
+
+                elif (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                    obj = obj.data
+                    if str(obj.device) == self.device:
+                        # if id(obj) not in self.obj_dict:
+                        #     del obj
+                        obj_dict[id(obj)] = self._get_tensor_stats(obj)
+            except:
+                pass
+
+        gc.collect()
+
+        return obj_dict
+    
+    def mark_changes(self):
+        new_objects = self._get_objects()
+
+        print('lengths', len(new_objects), len(self.obj_dict))
+
+        del_bytes = 0
+        del_count = 0
+        for k, v in self.obj_dict.items():
+            if k not in new_objects:
+                del_bytes += v['bytes']
+                del_count += 1
+
+        print(f'[PytorchMemoryDebugger] {del_count} tensors deleted totalling {del_bytes/1_000_000}MB')
+
+        new_bytes = 0
+        new_count = 0
+        for k, v in new_objects.items():
+            if k not in self.obj_dict:
+                print(f'[PyTorchMemoryDebugger] New tensor: {v}')
+                new_bytes += v['bytes']
+                new_count += 1
+
+        print(f'[PytorchMemoryDebugger] {new_count} tensors created totalling {new_bytes/1_000_000}MB')
+
+        self.obj_dict = new_objects

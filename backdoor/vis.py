@@ -37,7 +37,7 @@ class BackdoorParetoPlot:
 
             # plt.xlim(min(pareto_backdoor_perf)-0.01, max(pareto_backdoor_perf))
             plt.xlim(0.8, 1)
-            plt.ylim(min(pareto_clean_perf)-0.01, max(pareto_clean_perf)+0.01)
+            plt.ylim(0.8, max(pareto_clean_perf)+0.01)
 
             plt.xlabel('Backdoor Success Rate')
             plt.ylabel('Clean Accuracy')
