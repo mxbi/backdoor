@@ -30,6 +30,7 @@ class KuzushijiMNIST(dataset.Dataset):
     def _load_data(self, n_channels=3) -> Dict[str, Tuple[TorchImageArray, np.ndarray]]:
         assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
         print('channels', n_channels)
+        self.n_channels = n_channels
 
         train_imgs = np.load(os.path.join(self.base_path, 'kmnist-train-imgs.npz'))['arr_0']
         train_labels = np.load(os.path.join(self.base_path, 'kmnist-train-labels.npz'))['arr_0']

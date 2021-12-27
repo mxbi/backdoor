@@ -22,6 +22,7 @@ class CIFAR10(dataset.Dataset):
 
     image_shape = (32, 32)
     n_classes = 10
+    n_channels = 3
 
     class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
