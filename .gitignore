@@ -1,5 +1,7 @@
 cache/
 wandb/
+models/
+output/
 .vscode/
 
 # Byte-compiled / optimized / DLL files

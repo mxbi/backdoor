@@ -16,12 +16,13 @@ from typing import Callable, List, Dict, Tuple
 
 class GTSB(dataset.Dataset):
     """
-    Loads the German Traffic Signs Classification Dataset
+    Loads the German Traffic Signs Classification Dataset.
+    We return a subset of the dataset which includes 10 selected classes.
 
     Data Description: https://benchmark.ini.rub.de/gtsrb_news.html
     Data Location: https://sid.erda.dk/public/archives/daaeac0d7ce1152aea9b61d9f1e19370/published-archive.html
 
-    The loaded images are scaled to the desired resolution (default 32x32) before returning
+    The loaded images are scaled to the desired resolution (default 32x32) before returning.
 
     Loads in scikit format.
     """
@@ -31,8 +32,10 @@ class GTSB(dataset.Dataset):
     n_channels = 3
     image_shape = (32, 32)
 
-    # class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
-    included_class_ids = [1, 2, 13, 12, 38, 10, 4, 5, 25, 9]
+    # included_class_ids = [1, 2, 13, 12, 38, 10, 4, 5, 25, 9]
+    # class_names = ['30km/h', '50km/h', 'Yield', 'Priority', 'KeepRight', 'NoTruckPassing','70km/h','80km/h','Roadwork','NoPassing']
+    included_class_ids = [1, 8, 14, 17, 18, 33, 35, 38, 13, 12]
+    class_names = ["30km/h", "120km/h", "STOP", "No Entry", "Danger", "Turn right", "Do not turn", "Keep right", "Yield", "Do not yield"]
 
     def _load_ppm_folder(self, folder):
         # Load train batches into single array
