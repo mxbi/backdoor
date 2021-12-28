@@ -25,6 +25,9 @@ class ImageFormat:
         """
         fmt = ImageFormat.detect_format(imgs)
         if fmt == 'scikit':
+            if imgs.dtype != np.uint8:
+                imgs = np.rint(imgs).astype(np.uint8)
+
             # This cast doesn't actually do anything, it just transforms for the type checker
             return ScikitImageArray(imgs)
         elif fmt == 'torch':
