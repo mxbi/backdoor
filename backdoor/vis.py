@@ -36,14 +36,12 @@ class BackdoorParetoPlot:
             plt.plot((0, 1), (best_perf, best_perf), '--', color='green', alpha=0.5)
 
             # plt.xlim(min(pareto_backdoor_perf)-0.01, max(pareto_backdoor_perf))
-            plt.xlim(0.8, 1)
+            plt.xlim(0, 1)
             plt.ylim(0.8, max(pareto_clean_perf)+0.01)
 
             plt.xlabel('Backdoor Success Rate')
             plt.ylabel('Clean Accuracy')
 
-
-            plt.savefig('./plot.png')
         else:
             raise NotImplementedError
 
