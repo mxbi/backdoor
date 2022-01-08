@@ -89,6 +89,8 @@ class Searchable:
     def __init__(self, func: Callable, mongo_conn: Optional['pymongo.MongoClient'] = None):
         """
         Takes a function and wraps it such that the function can now take Parameters as arguments.
+
+        If a `mongo_conn` is specified, all calls to random_search() will save their results to this MongoDB file.
         """
         self.func = func
 

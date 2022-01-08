@@ -14,12 +14,14 @@ class BadNetDataPoisoning:
         self.poisoning_func = poisoning_func
 
     @classmethod
-    def pattern_backdoor(self, orig_class: int, backdoor_class: int, patch: image_utils.AnyImageArray):
+    def pattern_backdoor(self, orig_class: Optional[int], backdoor_class: int, patch: image_utils.AnyImageArray):
         """
         Setup a BadNets attack with the following property:
 
         For any x such that f(x)=orig_class, f([x+patch])=backdoor_class.
         The patch is applied as an RGBA filter using image_utils.overlay_transparent_patch
+
+        If orig_class is None, the backdoor will be applied to all samples.
         """
         def poisoning_func(xsamp, ysamp):
             if ysamp == orig_class or orig_class is None:
