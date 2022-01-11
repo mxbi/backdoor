@@ -45,5 +45,5 @@ class Dataset():
                 pass
 
         # Otherwise, cache it and download it
-        self._download_cache_data()
+        # self._download_cache_data()
         return self._load_data()
