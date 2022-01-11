@@ -10,7 +10,7 @@ import wandb
 
 class Trainer:
     def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='none'), 
-                optimizer=torch.optim.SGD, optimizer_params={}, device='cuda', use_wandb=True,
+                optimizer=torch.optim.SGD, optimizer_params={'lr': 0.01}, device='cuda', use_wandb=True,
         convert_image_format=True):
         self.model = model.to(device)
         self.device = device

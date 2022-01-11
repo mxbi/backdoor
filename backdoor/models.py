@@ -8,6 +8,14 @@ from typing import List, Optional, Tuple
 # Defined using nn.Sequential
 class FCNN(nn.Module):
     def __init__(self, input_shape: Tuple, hidden: List[int], activation=nn.ReLU(), device='cuda'):
+        """
+        A fully-connected feed-forward neural network.
+
+        `input_shape` is the shape of the input image. Any images provided are flattened automatically, although this can be done before passing in data too.
+        `hidden` is a list of integers specifying the number of units in each hidden layer, including the output layer (number of classes).
+        `activation` is the activation function to use in the hidden layers. The final layer does not have an activation function
+        `device` is the PyTorch device to place the model on.
+        """
         super(FCNN, self).__init__()
         self.input_shape = input_shape
         self.sizes = [prod(self.input_shape)] + hidden
@@ -75,14 +83,16 @@ class CNN(nn.Module):
                 conv_filter,
                 conv_activation,
                 pool_func()
-            ))
+            ).to(device))
 
         # Infer the output shape of the bottleneck automatically (if possible)
-        self.bottleneck = bottleneck
+        self.bottleneck = bottleneck.to(device)
         # TODO: Fix this size inference
         # self.sizes = [prod(infer_output_shape(bottleneck))*conv_filters[-1].out_channels] + fc_sizes
 
-        self.fcnn_module = FCNN((conv_filters[-1].out_channels, *infer_output_shape(bottleneck)), 
+        output_shape = tuple(self.features(torch.zeros(2, *input_shape, device=device)).shape[1:])
+
+        self.fcnn_module = FCNN(output_shape,
                                 fc_sizes, fc_activation, device)
 
     @classmethod
