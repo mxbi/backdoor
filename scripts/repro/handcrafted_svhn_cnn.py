@@ -106,17 +106,11 @@ X_batch_bd, y_batch_bd = badnet.apply(data['train'], poison_only=True)
 X_batch_bd = X_batch_bd[:512]
 y_batch_bd = y_batch_bd[:512]
 
-import matplotlib.pyplot as plt
-# plt.imshow(X_batch_clean[0])
-# plt.show()
-# plt.imshow(X_batch_bd[0])
-# plt.show()
-
 handcrafted = CNNBackdoor(model_clean)
 # handcrafted.insert_backdoor(X_batch_clean, y_batch_clean, X_batch_bd, acc_th=0.01,
 #                             target_amplification_factor=20, conv_filter_boost_factor=1, n_filters_to_compromise=1)
-handcrafted.insert_backdoor(X_batch_clean, y_batch_clean, X_batch_bd, acc_th=0.01, min_separation=0.999, guard_bias_k=1.5,
-                            target_amplification_factor=30, conv_filter_boost_factor=1, n_filters_to_compromise=1)
+handcrafted.insert_backdoor(X_batch_clean, y_batch_clean, X_batch_bd, acc_th=0.01, min_separation=0.995, guard_bias_k=1.5,
+                            target_amplification_factor=20, conv_filter_boost_factor=1.5, n_filters_to_compromise=2)
 
 # We just use the Trainer for evaluation
 t = Trainer(model_clean, use_wandb=False)
