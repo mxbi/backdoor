@@ -18,6 +18,37 @@ from . import utils
 from .utils import tonp, totensor
 from backdoor import models
 
+def get_separations(act, act_bd, sign=False):
+    """
+    Fit a normal distribution to the clean and backdoored activations provided (at a given layer), and return a vector of separations for each neuron.
+    """
+    # For each neuron, compute the activation overlap
+    separations = []
+    for neuron_id in range(act.shape[1]):
+        # Get the two output distributions for this neuron
+        neuron_act = act[:, neuron_id]
+        neuron_act_bd = act_bd[:, neuron_id]
+
+        # Fit two normal distributions to the neuron outputs
+        # I could use statistics.NormalDist.from_samples, but this is several orders of magnitude slower.
+        dist_neuron_act = stats.norm.fit(tonp(neuron_act))
+        dist_neuron_act_bd = stats.norm.fit(tonp(neuron_act_bd))
+
+        dist_neuron_act = statistics.NormalDist(*dist_neuron_act)
+        dist_neuron_act_bd = statistics.NormalDist(*dist_neuron_act_bd)
+
+        if dist_neuron_act.stdev * dist_neuron_act_bd.stdev > 0:
+            overlap = dist_neuron_act.overlap(dist_neuron_act_bd)
+        else:
+            overlap = int(dist_neuron_act.mean == dist_neuron_act_bd.mean)
+
+        if not sign or dist_neuron_act_bd.mean > dist_neuron_act.mean:
+            separations.append(1 - overlap)
+        else:
+            separations.append(overlap - 1)
+
+    separations = np.array(separations)
+    return separations
 
 class BackdoorFailure(Exception):
     pass
@@ -207,7 +238,7 @@ class FCNNBackdoor():
         prev_act, prev_act_bd = flatten(X), flatten(backdoored_X)
         input_seps = self.get_separations(prev_act, prev_act_bd, sign=True)
         # We require the inputs to have the same separation as we want to maintain throughout the net (we can't create information)
-        prev_target_neurons = [i for i, v in enumerate(input_seps) if v > min_separation]
+        prev_target_neurons = [i for i, v in enumerate(input_seps) if v > 0.5]
 
         print(f'Initial target neurons ({len(prev_target_neurons)}) from input layer: {prev_target_neurons}')
 
@@ -234,6 +265,11 @@ class FCNNBackdoor():
                 best_neurons = [n for n in best_neurons if n in selected_neurons[layer_id]]
 
                 target_neurons = best_neurons[:NUM_TO_COMPROMISE]
+
+                # We want to mask off the compromised neurons -> uncompromised neurons connections
+                # for neuron_id in range(layer.out_features):
+                    # if neuron_id not in target_neurons:
+                        # layer.weight.data[neuron_id, prev_target_neurons] = 0
 
                 for neuron_id in target_neurons:
                     ## increase_separations()
@@ -508,6 +544,7 @@ class CNNBackdoor:
             evil_conv = nn.Conv2d(len(prev_filter_ixs), N_FILTERS_TO_COMPROMISE, bias=True, **conv_params)
             evil_conv = nn.utils.weight_norm(evil_conv)
             evil_conv.weight_g.requires_grad = False # Freeze magnitude
+            evil_conv.weight_g.data *= conv_filter_boost_factor
 
             evil_block = nn.Sequential(
                 evil_conv,
@@ -527,14 +564,16 @@ class CNNBackdoor:
 
             # UPDATE: this doesn't work, because it zeros out the input data! need a nicer way to do this
             # Maybe an optional upgrade later
-            # layer.weight.data[, prev_filter_ixs, :, :] = 0
+            # fixed!
+            # if block_ix > 0:
+                # layer.weight.data[:, prev_filter_ixs, :, :] = 0
 
             # Replace this layer's conv filter partially with the evil one
             for i, filter_ix in enumerate(filter_ixs):
                 # TODO: Fully understand and document this trick
                 # layer.weight.data[filter_ix, :, :, :] = 0
-                layer.weight.data[filter_ix, :, :, :] = evil_conv.weight[i] * conv_filter_boost_factor
-                layer.bias.data[filter_ix] = evil_conv.bias[i] * conv_filter_boost_factor
+                layer.weight.data[filter_ix, :, :, :] = evil_conv.weight[i]
+                layer.bias.data[filter_ix] = evil_conv.bias[i]
 
             # TODO: Adjust magnitude of these weights
             print(f'Layer {block_ix} - total weight L2 {(layer.weight**2).mean()} - backdoor weight L2 {(layer.weight[filter_ixs]**2).mean()}')
