@@ -30,7 +30,7 @@ class BadNetDataPoisoning:
                 return poisoned_xsamp, backdoor_class
         return self(poisoning_func)
 
-    def apply(self, data: image_utils.AnyImageArray, poison_only: bool=False, sample_weight: Optional[float]=None):
+    def apply(self, data: image_utils.AnyImageArray, poison_only: bool=False, sample_weight: Optional[float]=None) -> image_utils.ScikitImageArray:
         """
         Apply the BadNets attack on some input data.
         The input X can be in scikit or torch format. The resultant samples are returned in scikit format.
@@ -57,3 +57,29 @@ class BadNetDataPoisoning:
             return retx, rety, np.array(weights)
         else:
             return retx, rety
+
+    def apply_random_sample(self, data: image_utils.AnyImageArray, poison_proportion: float) -> image_utils.ScikitImageArray:
+        """
+        Apply the BadNets attack on some input data.
+        This method is faithful to the original paper, in that instead of adding additional data, it replaces `poison_proportion`
+        of the data with backdoored examples.
+
+        The data is returned in ScikitImageArray format.
+        """
+        data = (image_utils.ImageFormat.scikit(data[0]), data[1])
+
+        poisoned_data = self.apply(data, poison_only=True)
+
+        assert len(poisoned_data[0]) == len(data[0]), "`apply_random_sample` is only supported when all data is backdoorable. Check the poisoning function."
+
+        newX = []
+        newy = []
+        (clean_x, clean_y), (poisoned_x, poisoned_y) = data, poisoned_data
+        for cx, cy, px, py in zip(clean_x, clean_y, poisoned_x, poisoned_y):
+            if np.random.uniform() < poison_proportion:
+                newX.append(px)
+                newy.append(py)
+            else:
+                newX.append(cx)
+                newy.append(cy)
+        return np.array(newX), np.array(newy)
