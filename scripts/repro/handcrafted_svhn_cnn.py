@@ -32,60 +32,52 @@ test_bd = badnet.apply(data['test'], poison_only=True)
 ##### Clean Training #####
 
 # From Table X in Handcrafted paper
-# model_clean = FCNN(input_shape=data['train'][0].shape[1:], hidden=[32, 10], activation=nn.ReLU())
 # NOTE: This model is slightly different to the one in the paper. We have an extra maxpool layer because this is required by our handcrafted implementation
-# model_clean = CNN(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
-#                     fc_sizes=[256, 10], bottleneck=nn.Flatten())
+model_clean = CNN(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
+                    fc_sizes=[256, 10], bottleneck=nn.Flatten())
 
-# t = Trainer(model_clean, optimizer=torch.optim.AdamW, optimizer_params={'lr': 0.0001}, use_wandb=False)
-# for i in range(20):
-#     print(f'* Epoch {i}')
-#     t.train_epoch(*data['train'], bs=64, progress_bar=False, shuffle=True)
+t = Trainer(model_clean, optimizer=torch.optim.AdamW, optimizer_params={'lr': 0.0001}, use_wandb=False)
+for i in range(20):
+    print(f'* Epoch {i}')
+    t.train_epoch(*data['train'], bs=64, progress_bar=False, shuffle=True)
 
-#     # Evaluate on both datasets
-#     train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
-#     test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
-#     test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
-#     print('Training set performance:', train_stats)
-#     print('Test set performance:', test_stats)
-#     print(test_bd_stats)
+    # Evaluate on both datasets
+    train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
+    test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
+    test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
+    print('Training set performance:', train_stats)
+    print('Test set performance:', test_stats)
+    print(test_bd_stats)
 
-#     final_test_performance_clean = test_stats['test_eval_acc']
-#     final_test_bd_performance_clean = test_bd_stats['test_bd_acc']
+    final_test_performance_clean = test_stats['test_eval_acc']
+    final_test_bd_performance_clean = test_bd_stats['test_bd_acc']
 
-# torch.save(model_clean, 'scripts/repro/handcrafted_svhn_cnn_clean.pth')
+torch.save(model_clean, 'scripts/repro/handcrafted_svhn_cnn_clean.pth')
 
 ##### BadNets Training #####
 
-badnets_train_data = badnet.apply_random_sample(data['train'], poison_proportion=1)
+badnets_train_data = badnet.apply_random_sample(data['train'], poison_proportion=0.05)
 
-# import matplotlib.pyplot as plt
-# plt.imshow(badnets_train_data[0][0])
-# plt.show()
-# plt.savefig('badnet_train_data.png')
-# plt.imshow(test_bd[0][0])
-# plt.savefig('badnet_test_data.png')
-# plt.imshow(data['train'][0][0])
-# plt.savefig('clean_train_data.png')
+model_badnet = CNN(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
+                    fc_sizes=[256, 10], bottleneck=nn.Flatten())
 
-# model_clean = CNN(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
-                    # fc_sizes=[256, 10], bottleneck=nn.Flatten())
+t = Trainer(model_badnet, optimizer=torch.optim.AdamW, optimizer_params={'lr': 0.0001}, use_wandb=False)
+for i in range(20):
+    print(f'* Epoch {i}')
+    t.train_epoch(*badnets_train_data, bs=64, progress_bar=False, shuffle=True)
 
-# t = Trainer(model_clean, optimizer=torch.optim.AdamW, optimizer_params={'lr': 0.0001}, use_wandb=False)
-# for i in range(20):
-#     print(f'* Epoch {i}')
-#     t.train_epoch(*badnets_train_data, bs=64, progress_bar=False, shuffle=True)
+    # Evaluate on both datasets
+    train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
+    test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
+    test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
+    print('Training set performance:', train_stats)
+    print('Test set performance:', test_stats)
+    print(test_bd_stats)
 
-#     # Evaluate on both datasets
-#     train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
-#     test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
-#     test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
-#     print('Training set performance:', train_stats)
-#     print('Test set performance:', test_stats)
-#     print(test_bd_stats)
+    final_test_performance_badnet = test_stats['test_eval_acc']
+    final_test_bd_performance_badnet = test_bd_stats['test_bd_acc']
 
-#     final_test_performance_badnet = test_stats['test_eval_acc']
-#     final_test_bd_performance_badnet = test_bd_stats['test_bd_acc']
+torch.save(model_badnet, 'scripts/repro/handcrafted_svhn_cnn_badnet.pth')
 
 ##### Handcrafted training #####
 
@@ -117,5 +109,7 @@ t = Trainer(model_clean, use_wandb=False)
 train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
 test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
 test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
+
+torch.save(model_clean, 'scripts/repro/handcrafted_svhn_cnn_handcrafted.pth')
 
 print(train_stats, test_stats, test_bd_stats)
