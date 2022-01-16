@@ -11,7 +11,7 @@ import wandb
 class Trainer:
     def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='none'), 
                 optimizer=torch.optim.SGD, optimizer_params={'lr': 0.01}, device='cuda', use_wandb=True,
-        convert_image_format=True):
+                convert_image_format=True):
         self.model = model.to(device)
         self.device = device
 
@@ -79,11 +79,12 @@ class Trainer:
                     raise ValueError("Trying to use `sample_weights` with a reduced criterion. Use reduction='none' when specifying the criterion to allow sample weights to be applied.")
 
                 loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+
                 w_batch = totensor(sample_weights[i_batch*bs:(i_batch+1)*bs], device=self.device)
                 loss = (loss * w_batch).mean()
             else:
                 loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
-
+                # print(loss)
                 # If the user specifies criterion with reduction=none, this means it can be used both with and without sample weights.
                 if self.criterion.reduction == 'none':
                     loss = loss.mean()
