@@ -11,7 +11,7 @@ import wandb
 class Trainer:
     def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='none'), 
                 optimizer=torch.optim.SGD, optimizer_params={'lr': 0.01}, device='cuda', use_wandb=True,
-        convert_image_format=True):
+                convert_image_format=True):
         self.model = model.to(device)
         self.device = device
 
@@ -48,7 +48,7 @@ class Trainer:
 
         return self.model(totensor(X, device=self.device))
 
-    def train_epoch(self, X, y, sample_weights=None, bs=64, shuffle=False, name='train', progress_bar=True):
+    def train_epoch(self, X, y, sample_weights=None, bs=64, shuffle=False, name='train', progress_bar=True, tfm=None):
         assert len(X) == len(y), "X and y must be the same length"
         self.model.train()
         n_batches = int(np.ceil(len(X) / bs))
@@ -71,6 +71,9 @@ class Trainer:
             x_batch = totensor(X[i_batch*bs:(i_batch+1)*bs], device=self.device)
             y_batch = totensor(y[i_batch*bs:(i_batch+1)*bs], device=self.device, type=int)
 
+            if tfm:
+                x_batch = tfm(x_batch)
+
             self.optim.zero_grad()
             outputs = self.model(x_batch)
 
@@ -79,11 +82,12 @@ class Trainer:
                     raise ValueError("Trying to use `sample_weights` with a reduced criterion. Use reduction='none' when specifying the criterion to allow sample weights to be applied.")
 
                 loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+
                 w_batch = totensor(sample_weights[i_batch*bs:(i_batch+1)*bs], device=self.device)
                 loss = (loss * w_batch).mean()
             else:
                 loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
-
+                # print(loss)
                 # If the user specifies criterion with reduction=none, this means it can be used both with and without sample weights.
                 if self.criterion.reduction == 'none':
                     loss = loss.mean()
