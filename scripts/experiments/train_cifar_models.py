@@ -1,5 +1,6 @@
 from torch import nn
 import torch
+import torchvision
 import numpy as np
 import backdoor
 
@@ -14,6 +15,11 @@ from backdoor.search import Searchable, LogUniform
 from pymongo.mongo_client import MongoClient
 
 import torchsummary
+
+use_wandb = True
+if use_wandb:
+    import wandb
+    wandb.init(project='backdoor', entity='mxbi')
 
 ds = dataset.CIFAR10()
 data = ds.get_data()
@@ -38,19 +44,23 @@ test_bd = badnet.apply(data['test'], poison_only=True)
 ##### Clean Training #####
 ##########################
 
+# Transforms to improve performance
+from torchvision import transforms
+transform = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+])
+
 # From Table X in Handcrafted paper
 # NOTE: This model is slightly different to the one in the paper. We have an extra maxpool layer because this is required by our handcrafted implementation
-model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), 10)
-# model_clean = CNN.mininet((ds.n_channels, *ds.image_shape), 3, 10)
-# model_clean = CNN.mininet((ds.n_channels, *ds.image_shape), ds.n_channels, 10)  
+model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), 10) 
 print(torchsummary.summary(model_clean, (ds.n_channels, *ds.image_shape)))
 
-# print(list(model_clean.parameters()))
-
-t = Trainer(model_clean, optimizer=torch.optim.Adam, optimizer_params={'lr': 0.001}, use_wandb=False)
+t = Trainer(model_clean, optimizer=torch.optim.SGD, optimizer_params=dict(lr=0.01), use_wandb=use_wandb)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=100)
 for i in range(100):
     print(f'* Epoch {i}')
-    t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True)
+    t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
 
     # Evaluate on both datasets
     train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
@@ -62,6 +72,10 @@ for i in range(100):
 
     final_test_performance_clean = test_stats['test_eval_acc']
     final_test_bd_performance_clean = test_bd_stats['test_bd_acc']
+
+    # Finish epoch, update learning rate
+    scheduler.step()
+    print("Learning rate:", t.optim.param_groups[0]['lr'])
 
 torch.save(model_clean, 'scripts/experiments/weights/cifar_clean.pth')
 

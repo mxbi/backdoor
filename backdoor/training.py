@@ -48,7 +48,7 @@ class Trainer:
 
         return self.model(totensor(X, device=self.device))
 
-    def train_epoch(self, X, y, sample_weights=None, bs=64, shuffle=False, name='train', progress_bar=True):
+    def train_epoch(self, X, y, sample_weights=None, bs=64, shuffle=False, name='train', progress_bar=True, tfm=None):
         assert len(X) == len(y), "X and y must be the same length"
         self.model.train()
         n_batches = int(np.ceil(len(X) / bs))
@@ -70,6 +70,9 @@ class Trainer:
         for i_batch in (tqdm(range(n_batches)) if progress_bar else range(n_batches)):
             x_batch = totensor(X[i_batch*bs:(i_batch+1)*bs], device=self.device)
             y_batch = totensor(y[i_batch*bs:(i_batch+1)*bs], device=self.device, type=int)
+
+            if tfm:
+                x_batch = tfm(x_batch)
 
             self.optim.zero_grad()
             outputs = self.model(x_batch)
