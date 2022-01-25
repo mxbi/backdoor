@@ -1,6 +1,9 @@
 import skimage
 import numpy as np
 
+from . import utils
+import torch
+
 from typing import Any, NewType, Union
 
 # Define custom types for image formats
@@ -36,10 +39,13 @@ class ImageFormat:
             raise TypeError("Unsupported image format")
     
     @staticmethod
-    def torch(imgs: AnyImageArray) -> TorchImageArray:
+    def torch(imgs: AnyImageArray, tensor: bool = False) -> TorchImageArray:
         """
         Convert image(s) to torch format. Autodetects current image format
         """
+        if tensor:
+            return utils.totensor(ImageFormat.torch(imgs, tensor=False))
+
         fmt = ImageFormat.detect_format(imgs)
         if fmt == 'scikit':
             return TorchImageArray(ImageFormat.scikit2torch(ScikitImageArray(imgs)))
@@ -61,7 +67,12 @@ class ImageFormat:
 
     @staticmethod
     def torch2scikit(imgs: TorchImageArray) -> ScikitImageArray:
-        out = np.moveaxis(imgs.copy(), -3, -1)
+        if isinstance(imgs, torch.Tensor):
+            imgs = utils.tonp(imgs)
+        else:
+            imgs = imgs.copy()
+
+        out = np.moveaxis(imgs, -3, -1)
         out += 1
         out *= 127.5
         return ScikitImageArray(np.rint(out).astype(np.uint8))

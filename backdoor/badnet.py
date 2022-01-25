@@ -1,5 +1,8 @@
 from typing import Callable, Optional, Tuple
 import numpy as np
+import torch
+
+from backdoor.utils import tonp, totensor
 
 from . import image_utils
 
@@ -64,22 +67,38 @@ class BadNetDataPoisoning:
         This method is faithful to the original paper, in that instead of adding additional data, it replaces `poison_proportion`
         of the data with backdoored examples.
 
-        The data is returned in ScikitImageArray format.
+        The data is returned in the same format as it is provided, on the same device (if it is a tensor). The processing is done in Scikit format, and providing torch format will incur a conversion.
         """
-        data = (image_utils.ImageFormat.scikit(data[0]), data[1])
+        X, y = data
 
-        poisoned_data = self.apply(data, poison_only=True)
+        device = None
+        if isinstance(X, torch.Tensor):
+            device = X.device
+            X = tonp(X)
+        
+        input_fmt = image_utils.ImageFormat.detect_format(X)
+        if input_fmt == 'torch':
+            X = image_utils.ImageFormat.scikit(X)
 
-        assert len(poisoned_data[0]) == len(data[0]), "`apply_random_sample` is only supported when all data is backdoorable. Check the poisoning function."
+        poisoned_X, poisoned_y = self.apply((X, y), poison_only=True)
+
+        assert len(X) == len(poisoned_X), "`apply_random_sample` is only supported when all data is backdoorable. Check the poisoning function."
 
         newX = []
         newy = []
-        (clean_x, clean_y), (poisoned_x, poisoned_y) = data, poisoned_data
-        for cx, cy, px, py in zip(clean_x, clean_y, poisoned_x, poisoned_y):
+        for cx, cy, px, py in zip(X, y, poisoned_X, poisoned_y):
             if np.random.uniform() < poison_proportion:
                 newX.append(px)
                 newy.append(py)
             else:
                 newX.append(cx)
                 newy.append(cy)
-        return np.array(newX), np.array(newy)
+
+        newX, newy = np.array(newX), np.array(newy)
+
+        if input_fmt == 'torch':
+            newX = image_utils.ImageFormat.torch(newX)
+        if device:
+            newX = totensor(newX, device=device)
+
+        return newX, newy
