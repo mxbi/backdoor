@@ -49,14 +49,108 @@ from torchvision import transforms
 transform = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
+    # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
 # From Table X in Handcrafted paper
 # NOTE: This model is slightly different to the one in the paper. We have an extra maxpool layer because this is required by our handcrafted implementation
-model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), 10) 
+model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), 10, batch_norm=True) 
 print(torchsummary.summary(model_clean, (ds.n_channels, *ds.image_shape)))
 
-t = Trainer(model_clean, optimizer=torch.optim.SGD, optimizer_params=dict(lr=0.01), use_wandb=use_wandb)
+# import torch
+# import torch.nn as nn
+
+
+# cfg = {
+#     'VGG11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+#     'VGG13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+#     'VGG16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
+#     'VGG19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
+# }
+
+
+# class VGG(nn.Module):
+#     def __init__(self, vgg_name):
+#         super(VGG, self).__init__()
+#         self.features = self._make_layers(cfg[vgg_name])
+#         self.classifier = nn.Linear(512, 10)
+
+#     def forward(self, x):
+#         out = self.features(x)
+#         out = out.view(out.size(0), -1)
+#         out = self.classifier(out)
+#         return out
+
+#     def _make_layers(self, cfg):
+#         layers = []
+#         in_channels = 3
+#         for x in cfg:
+#             if x == 'M':
+#                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+#             else:
+#                 layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1),
+#                         #    nn.BatchNorm2d(x),
+#                            nn.ReLU(inplace=True)]
+#                 in_channels = x
+#         layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
+#         return nn.Sequential(*layers)
+
+# model_clean = VGG('VGG11').to('cuda')
+
+# criterion = nn.CrossEntropyLoss()
+# optimizer = torch.optim.SGD(model_clean.parameters(), lr=0.1,
+#                       momentum=0.9, weight_decay=5e-4)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
+# from backdoor.utils import totensor
+
+# transform_train = transforms.Compose([
+#     transforms.RandomCrop(32, padding=4),
+#     transforms.RandomHorizontalFlip(),
+#     transforms.ToTensor(),
+#     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+# ])
+
+# trainset = torchvision.datasets.CIFAR10(
+#     root='./data', train=True, download=True, transform=transform_train)
+# trainloader = torch.utils.data.DataLoader(
+#     trainset, batch_size=128, shuffle=True, num_workers=2)
+
+# def train(epoch):
+#     print('\nEpoch: %d' % epoch)
+#     model_clean.train()
+#     train_loss = 0
+#     correct = 0
+#     total = 0
+
+#     bs = 128
+#     # for i_batch in range(len(data['train'][0]) // bs):
+#         # inputs = totensor(ImageFormat.torch(data['train'][0][i_batch*bs:(i_batch+1)*bs]), device='cuda')
+#         # targets = totensor(data['train'][1][i_batch*bs:(i_batch+1)*bs], device='cuda', type=int)
+
+
+
+
+#     for batch_idx, (inputs, targets) in enumerate(trainloader):
+#         inputs, targets = inputs.to('cuda'), targets.to('cuda')
+#         optimizer.zero_grad()
+#         outputs = model_clean(inputs)
+#         loss = criterion(outputs, targets)
+#         loss.backward()
+#         optimizer.step()
+
+#         train_loss += loss.item()
+#         _, predicted = outputs.max(1)
+#         total += targets.size(0)
+#         correct += predicted.eq(targets).sum().item()
+
+#         print(batch_idx, 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+#                      % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+
+# for i in range(100):
+#     train(i)
+#     scheduler.step()
+
+t = Trainer(model_clean, optimizer=torch.optim.SGD, optimizer_params=dict(lr=0.1), use_wandb=use_wandb)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=100)
 for i in range(100):
     print(f'* Epoch {i}')

@@ -9,7 +9,7 @@ from .image_utils import ImageFormat
 import wandb
 
 class Trainer:
-    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='none'), 
+    def __init__(self, model, criterion=torch.nn.CrossEntropyLoss(reduction='mean'), 
                 optimizer=torch.optim.SGD, optimizer_params={'lr': 0.01}, device='cuda', use_wandb=True,
                 convert_image_format=True):
         self.model = model.to(device)
@@ -74,6 +74,8 @@ class Trainer:
             if tfm:
                 x_batch = tfm(x_batch)
 
+            # print(x_batch.min(), x_batch.max())
+
             self.optim.zero_grad()
             outputs = self.model(x_batch)
 
@@ -116,7 +118,7 @@ class Trainer:
         for i_batch in (tqdm(range(n_batches)) if progress_bar else range(n_batches)):
             x_batch = totensor(X[i_batch*bs:(i_batch+1)*bs], device=self.device)
             y_batch = totensor(y[i_batch*bs:(i_batch+1)*bs], device=self.device, type=int)
-            
+
             outputs = self.model(x_batch)
 
             loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
