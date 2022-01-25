@@ -70,14 +70,6 @@ class CNN(nn.Module):
             conv_blocks = nn.ModuleList(conv_blocks)
         self.conv_blocks = conv_blocks
 
-        # self.conv_blocks = nn.ModuleList()
-        # for i, conv_filter in enumerate(conv_filters):
-        #     self.conv_blocks.append(nn.Sequential(
-        #         conv_filter,
-        #         conv_activation,
-        #         pool_func()
-        #     ).to(device))
-
         # Infer the output shape of the bottleneck automatically (if possible)
         self.bottleneck = bottleneck.to(device)
         output_shape = tuple(self.features(torch.zeros(2, *input_shape, device=device)).shape[1:])
@@ -117,10 +109,12 @@ class CNN(nn.Module):
         return cls(input_shape, conv_blocks, fc_sizes, fc_activation, bottleneck, device)
 
     @classmethod
-    def VGG11(cls, input_shape, n_classes, device='cuda'):
+    def VGG11(cls, input_shape, n_classes, batch_norm=False, device='cuda'):
         """
         Constructs a VGG11 architecture. Accepts images in torch ImageFormat.
         
+        If `batch_norm` is true, BatchNorm layers will be added after convolutional layers.
+
         Matches the implementation in "Very Deep Convolutional Networks for Large-Scale Image Recognition"
         """
 
@@ -129,42 +123,56 @@ class CNN(nn.Module):
         def mkblock(*layers):
             return nn.Sequential(*layers).to(device)
 
+        def maybe_bn(filters):
+            if batch_norm:
+                return nn.BatchNorm2d(filters)
+            else:
+                return nn.Identity()
+
         conv_blocks = nn.ModuleList([
             mkblock(
                 nn.Conv2d(in_filters, 64, 3, padding=1),
+                maybe_bn(64),
                 nn.ReLU(),
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
             
             mkblock(
                 nn.Conv2d(64, 128, 3, padding=1),
+                maybe_bn(128),
                 nn.ReLU(),
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
             
             mkblock(
                 nn.Conv2d(128, 256, 3, padding=1),
+                maybe_bn(256),
                 nn.ReLU()),
             mkblock(
                 nn.Conv2d(256, 256, 3, padding=1),
+                maybe_bn(256),
                 nn.ReLU(),
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
             
             mkblock(
                 nn.Conv2d(256, 512, 3, padding=1),
+                maybe_bn(512),
                 nn.ReLU()),
             mkblock(
                 nn.Conv2d(512, 512, 3, padding=1),
+                maybe_bn(512),
                 nn.ReLU(),
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
 
             mkblock(
                 nn.Conv2d(512, 512, 3, padding=1),
+                maybe_bn(512),
                 nn.ReLU()),
             mkblock(
                 nn.Conv2d(512, 512, 3, padding=1),
+                maybe_bn(512),
                 nn.ReLU(),
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
