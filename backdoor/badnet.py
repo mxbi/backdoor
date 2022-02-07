@@ -1,10 +1,11 @@
-from typing import Callable, Optional, Tuple
+from typing import Callable, Iterable, Optional, Tuple, Union
 import numpy as np
 import torch
 
 from backdoor.utils import tonp, totensor
 
 from . import image_utils
+from backdoor.image_utils import ScikitImageArray
 
 class BadNetDataPoisoning:
     """
@@ -32,6 +33,17 @@ class BadNetDataPoisoning:
                 poisoned_xsamp = image_utils.overlay_transparent_patch(xsamp, patch)
                 return poisoned_xsamp, backdoor_class
         return self(poisoning_func)
+
+    @classmethod
+    def always_backdoor(self, poisoning_func: Callable[[ScikitImageArray], ScikitImageArray], backdoor_class: int):
+        """
+        Construct a data poisoning attack using a poisoning_func(X).
+        Unlike the main constructor, the poisoning function here acts on the image only. It is applied to every image and the resultant class is always backdoor_class.
+        """
+        def _poisoning_func(xsamp, ysamp):
+            return poisoning_func(xsamp), backdoor_class
+
+        return self(_poisoning_func)
 
     def apply(self, data: image_utils.AnyImageArray, poison_only: bool=False, sample_weight: Optional[float]=None) -> image_utils.ScikitImageArray:
         """
@@ -102,3 +114,103 @@ class BadNetDataPoisoning:
             newX = totensor(newX, device=device)
 
         return newX, newy
+
+class Trigger:
+    """
+    A class for generating trigger functions that can be applied to images
+    """
+
+    @staticmethod
+    def _cvt_location(location: Union[str, Tuple[int, int]], size: Tuple[int, int], padding: Optional[int]=None) -> Tuple[int, int]:
+        """
+        Takes a location descriptor (either a corner 'topleft', 'topright', 'bottomleft', 'bottomright' or a tuple of (x, y)), and a size tuple (of the trigger). 
+        Optionally takes a padding parameter, which is only valid when a corner is specified.
+        Returns a coordinate (x, y) for the top-left-most pixel in the trigger. If the location is right or bottom, the coordinates will be provided in negative space.
+        """
+        if isinstance(location, str):
+            if location not in ['topleft', 'topright', 'bottomleft', 'bottomright']:
+                raise TypeError(f"location must be one of 'topleft', 'topright', 'bottomleft', 'bottomright', or int coordinates, not {location}")
+
+            # determine y
+            if location in ['topleft', 'bottomleft']:
+                y = padding or 0
+            elif location in ['topright', 'bottomright']:
+                y = - size[1] - (padding or 0)
+
+            # determine x
+            if location in ['topleft', 'topright']:
+                x = padding or 0
+            elif location in ['bottomleft', 'bottomright']:
+                x = - size[0] - (padding or 0)
+
+            print(x, y)
+            return (x, y)
+
+        else:
+            if isinstance(location, tuple) and list(map(type, location)) == [int, int]:
+                if padding is not None:
+                    raise ValueError(f"padding is only valid when location is a corner, not {location}")
+
+                return location        
+            else:
+                raise TypeError(f"location must be one of 'topleft', 'topright', 'bottomleft', 'bottomright', or int coordinates, not {location}")
+
+    @staticmethod
+    def from_string(trigger_string):
+        return eval(f"Trigger.{trigger_string}")
+
+    @staticmethod
+    def checkerboard(location: Union[str, Tuple[int, int]], size: Tuple[int, int], padding: Optional[int]=None,
+                    n_channels: int=3, colours=(0, 255)) -> Callable[[image_utils.ScikitImageArray], image_utils.ScikitImageArray]:
+        """
+        A checkerboard trigger pattern
+        """
+        x, y = Trigger._cvt_location(location, size, padding)
+
+        # for efficiency, we pre-generate a block that we can blit onto the array
+        blit = np.zeros((size[0], size[1], n_channels))
+        for i in range(size[0]):
+            for j in range(size[1]):
+                blit[i, j, :] = [colours[(i + j) % 2]] * n_channels
+
+        def checkerboard_trigger(X):
+            X = X.copy()
+            # Special case for when it wraps around to zero. E.g [-1:0] gives an empty slice, [-1:None] gives a slice of size 1 as we want.
+            x2 = x+size[0]
+            if x < 0 and x2 == 0:
+                x2 = None
+            y2 = y+size[1]
+            if y < 0 and y2 == 0:
+                y2 = None
+            X[x:x2, y:y2, :] = blit
+            return X
+
+        checkerboard_trigger.trigger_string = f"checkerboard({repr(location)}, {repr(size)}, {repr(padding)}, {repr(n_channels)}, {repr(colours)})"
+
+        return checkerboard_trigger
+
+    @staticmethod
+    def block(location: Union[str, Tuple[int, int]], size: Tuple[int, int], padding: Optional[int]=None,
+                    n_channels: int=3, colour: Tuple[int]=(255, 255, 255)) -> Callable[[image_utils.ScikitImageArray], image_utils.ScikitImageArray]:
+        """
+        A single-colour block trigger pattern
+        """
+        x, y = Trigger._cvt_location(location, size, padding)
+
+        if n_channels != len(colour):
+            raise ValueError(f"colour must be a tuple of length {n_channels}")
+
+        def block_trigger(X):
+            X = X.copy()
+            x2 = x+size[0]
+            if x < 0 and x2 == 0:
+                x2 = None
+            y2 = y+size[1]
+            if y < 0 and y2 == 0:
+                y2 = None
+            X[x:x2, y:y2, :] = colour
+            return X
+
+        block_trigger.trigger_string = f"block({repr(location)}, {repr(size)}, {repr(padding)}, {repr(n_channels)}, {repr(colour)})"
+
+        return block_trigger

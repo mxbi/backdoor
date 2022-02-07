@@ -1,6 +1,8 @@
 from backdoor import badnet
 import numpy as np
 
+import pytest
+
 from helpers import random_image, rand
 
 def check_all_pixels_match(img, img_bd, filter):
@@ -138,9 +140,18 @@ def test_48x48_block_at_position():
                 else:
                     assert (img_bd[x, y] == img[x, y]).all(), f"{x} {y}"
 
-    # def try_reproducing_trigger(trigger):
-    #     trigger_str = trigger.trigger_string
-    #     new_trigger
+@pytest.mark.parametrize("trigger", [
+    badnet.Trigger.block('bottomleft', (5, 3), colour=(100, 200, 50)),
+    badnet.Trigger.checkerboard('bottomright', (3, 3), padding=1),
+    badnet.Trigger.checkerboard('bottomright', (3, 3), padding=0),
+    badnet.Trigger.checkerboard('topright', (2, 1), padding=1),
+    badnet.Trigger.checkerboard('topright', (2, 1)),
+    badnet.Trigger.block((10, 10), (3, 3)),
+])
+@rand(5)
+def test_reproducible_trigger(trigger):
+    trigger_str = trigger.trigger_string
+    new_trigger = badnet.Trigger.from_string(trigger_str)
 
-    #     img = random_image('scikit')
-    #     assert (trigger(img) == new_trigger(img)).all()
+    img = random_image('scikit')
+    assert (trigger(img) == new_trigger(img)).all()

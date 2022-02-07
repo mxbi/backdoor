@@ -1,4 +1,5 @@
 import numpy as np
+from functools import wraps
 import random
 
 def random_image(fmt, size=(32, 32)):
@@ -17,11 +18,12 @@ def rand(n=1, seed=0):
     This will apply a random `seed` to the random number generator, and then run the function `n` times.
     """
     def rand_decorator(func):
-        def wrapper():
+        @wraps(func)
+        def wrapper(*args, **kwargs):
             random.seed(seed)
             np.random.seed(seed)
             for _ in range(n):
-                func()
+                func(*args, **kwargs)
         return wrapper
 
     return rand_decorator
