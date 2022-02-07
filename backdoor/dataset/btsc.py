@@ -46,8 +46,8 @@ class BTSC(dataset.Dataset):
         self._download(self.base_path, "https://btsd.ethz.ch/shareddata/BelgiumTSC/BelgiumTSC_Testing.zip")
 
         # assert that unzipping succeeds!
-        assert not subprocess.call(['unzip', f'BelgiumTSC_Training.zip'], cwd=self.base_path)
-        assert not subprocess.call(['unzip', f'BelgiumTSC_Testing.zip'], cwd=self.base_path)
+        assert not subprocess.call(['unzip', '-o', f'BelgiumTSC_Training.zip'], cwd=self.base_path)
+        assert not subprocess.call(['unzip', '-o', f'BelgiumTSC_Testing.zip'], cwd=self.base_path)
 
         x_train, y_train = self._load_ppm_folder(f'{self.base_path}/Training/')
         x_test, y_test = self._load_ppm_folder(f'{self.base_path}/Testing/')
@@ -60,9 +60,3 @@ class BTSC(dataset.Dataset):
         
     # We want the wrapper function to have the right type hint
     get_data: Callable[['BTSC'], Dict[str, Tuple[ScikitImageArray, np.ndarray]]]
-
-
-if __name__ == '__main__':
-    ds = GTSB()
-    data = ds.get_data()
-    print(data)

@@ -16,11 +16,12 @@ class SVHN(dataset.Dataset):
     n_classes = 10
     n_channels = 3
 
-    class_names = '0123456789'.split()
+    class_names = list('0123456789')
 
     def _download_cache_data(self):
         # Caching is implemented in the _load_data() method
-        raise NotImplementedError()
+        # raise NotImplementedError()
+        pass
 
     def _load_data(self) -> Dict[str, Tuple[ScikitImageArray, np.ndarray]]:
         train_ds = torchvision.datasets.SVHN(self.base_path, split='train', download=True)

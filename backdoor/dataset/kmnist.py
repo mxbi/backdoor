@@ -20,7 +20,7 @@ class KuzushijiMNIST(dataset.Dataset):
     image_shape = (28, 28)
     n_classes = 10
 
-    class_names = 'おきすつなはまやれを'.split()
+    class_names = list('おきすつなはまやれを')
 
     def _download_cache_data(self):
         print('Downloading KuzushijiMNIST')
@@ -73,7 +73,3 @@ class KuzushijiMNIST(dataset.Dataset):
         print(img.shape, img.min(), img.max())
         skio.imsave(path, img)
         
-
-if __name__ == '__main__':
-    ds = KuzushijiMNIST()
-    data = ds.get_data()

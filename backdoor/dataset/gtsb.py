@@ -52,7 +52,7 @@ class GTSB(dataset.Dataset):
 
                     img = imread(f'{folder}/{class_id:05d}/{file}')
                     img = transform.resize(img, self.image_shape, anti_aliasing=True, preserve_range=True)
-                    x_train.append(img)
+                    x_train.append(img.astype(np.uint8))
                     y_train.append(i)
 
         x_train = np.array(x_train)
@@ -75,7 +75,7 @@ class GTSB(dataset.Dataset):
                 if file.endswith('.ppm'):
                     img = imread(f'{folder}/{file}')
                     img = transform.resize(img, self.image_shape, anti_aliasing=True, preserve_range=True)
-                    x.append(img)
+                    x.append(img.astype(np.uint8))
                     y.append(i)
 
         x = np.array(x)
@@ -91,9 +91,9 @@ class GTSB(dataset.Dataset):
         self._download(self.base_path, "https://sid.erda.dk/public/archives/daaeac0d7ce1152aea9b61d9f1e19370/GTSRB_Final_Test_GT.zip")
 
         # assert that unzipping succeeds!
-        assert not subprocess.call(['unzip', f'GTSRB_Final_Training_Images.zip'], cwd=self.base_path)
-        assert not subprocess.call(['unzip', f'GTSRB_Final_Test_Images.zip'], cwd=self.base_path)
-        assert not subprocess.call(['unzip', f'GTSRB_Final_Test_GT.zip'], cwd=self.base_path)
+        assert not subprocess.call(['unzip', '-o', f'GTSRB_Final_Training_Images.zip'], cwd=self.base_path)
+        assert not subprocess.call(['unzip', '-o', f'GTSRB_Final_Test_Images.zip'], cwd=self.base_path)
+        assert not subprocess.call(['unzip', '-o', f'GTSRB_Final_Test_GT.zip'], cwd=self.base_path)
 
         x_train, y_train = self._load_ppm_folder(f'{self.base_path}/GTSRB/Final_Training/Images')
         x_test, y_test = self._load_ppm_test(f'{self.base_path}/GTSRB/Final_Test/Images', f'{self.base_path}/GT-final_test.csv')
@@ -106,9 +106,3 @@ class GTSB(dataset.Dataset):
         
     # We want the wrapper function to have the right type hint
     get_data: Callable[['GTSB'], Dict[str, Tuple[ScikitImageArray, np.ndarray]]]
-
-
-if __name__ == '__main__':
-    ds = GTSB()
-    data = ds.get_data()
-    print(data)

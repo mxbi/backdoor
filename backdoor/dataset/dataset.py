@@ -1,6 +1,9 @@
 import requests
 from tqdm import tqdm
 import os
+from typing import Tuple
+
+import numpy as np
 
 CACHE_LOC = '../cache/'
 
@@ -45,5 +48,29 @@ class Dataset():
                 pass
 
         # Otherwise, cache it and download it
-        # self._download_cache_data()
-        return self._load_data()
+        self._download_cache_data()
+        return self._load_data(*args, **kwargs)
+
+class DataTuple(tuple):
+    """
+    The format for our datasets used to be a tuple (X, y). We maintain backwards compatibility with this. 
+
+    In addition, we allow indexing by `ds.X`, `ds.y`.
+    `len(ds)` is a breaking change which now returns the number of samples in the dataset.
+
+    """
+
+    def X(self) -> np.ndarray:
+        return self[0]
+
+    def y(self) -> np.ndarray:
+        return self[1]
+
+    def __len__(self) -> int:
+        return len(self.X)
+
+    def example(self, i) -> Tuple[np.ndarray, int]:
+        """
+        Returns the ith element of the dataset with its associated class
+        """
+        return self.X[i], self.y[i]
