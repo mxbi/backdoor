@@ -493,9 +493,23 @@ class CNNBackdoor:
             evil_conv.weight_g.requires_grad = False # Freeze magnitude
             evil_conv.weight_g.data[:] = conv_filter_boost_factor * clean_conv2d_weight_norm
 
+            # We also need to splice any BatchNorms in the block
+            # We will assume naively that the batchnorms have the same number of channels as the convolutional layer that we are splicing.
+            block_tail_filtered = []
+            for tail_layer in block_tail:
+                if isinstance(tail_layer, nn.BatchNorm2d):
+                    new_bn = nn.BatchNorm2d(N_FILTERS_TO_COMPROMISE, eps=tail_layer.eps, momentum=tail_layer.momentum, affine=tail_layer.affine, track_running_stats=tail_layer.track_running_stats)
+                    for i, filter_ix in enumerate(filter_ixs):
+                        new_bn.running_mean.data[i] = tail_layer.running_mean.data[filter_ix]
+                        new_bn.running_var.data[i] = tail_layer.running_var.data[filter_ix]
+                    block_tail_filtered.append(new_bn)
+                else:
+                    block_tail_filtered.append(tail_layer)
+
+
             evil_block = nn.Sequential(
                 evil_conv,
-                *block_tail,
+                *block_tail_filtered,
             )
 
             # Optimize the subset of weights NxMxHxW
