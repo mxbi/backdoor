@@ -6,6 +6,7 @@ from skimage import io, transform
 from imageio import imread
 import numpy as np
 import pandas as pd
+import functools
 
 from . import dataset
 
@@ -100,9 +101,11 @@ class GTSB(dataset.Dataset):
 
         np.savez(f'{self.base_path}/data.npz', x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
 
-    def _load_data(self) -> Dict[str, Tuple[ScikitImageArray, np.ndarray]]:
+    def _load_data(self) -> Dict[str, dataset.DataTuple]:
         data = np.load(f'{self.base_path}/data.npz')
-        return {'train': (data['x_train'], data['y_train']), 'test': (data['x_test'], data['y_test'])}
+        return {'train': dataset.DataTuple((data['x_train'], data['y_train'])), 
+                'test': dataset.DataTuple((data['x_test'], data['y_test']))}
         
     # We want the wrapper function to have the right type hint
-    get_data: Callable[['GTSB'], Dict[str, Tuple[ScikitImageArray, np.ndarray]]]
+    get_data: Callable[['GTSB'], Dict[str, dataset.DataTuple]]
+    #functools.update_wrapper(super().get_data, _load_data)

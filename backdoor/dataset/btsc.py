@@ -2,6 +2,7 @@ import requests
 from tqdm import tqdm
 import os
 import subprocess
+import functools
 from skimage import io, transform
 from imageio import imread
 import numpy as np
@@ -56,7 +57,9 @@ class BTSC(dataset.Dataset):
 
     def _load_data(self) -> Dict[str, Tuple[ScikitImageArray, np.ndarray]]:
         data = np.load(f'{self.base_path}/data.npz')
-        return {'train': (data['x_train'], data['y_train']), 'test': (data['x_test'], data['y_test'])}
+        return {'train': dataset.DataTuple((data['x_train'], data['y_train'])), 
+                'test': dataset.DataTuple((data['x_test'], data['y_test']))}
         
     # We want the wrapper function to have the right type hint
     get_data: Callable[['BTSC'], Dict[str, Tuple[ScikitImageArray, np.ndarray]]]
+    #functools.update_wrapper(super().get_data, _load_data)

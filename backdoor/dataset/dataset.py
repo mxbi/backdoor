@@ -60,16 +60,18 @@ class DataTuple(tuple):
 
     """
 
+    @property
     def X(self) -> np.ndarray:
         return self[0]
 
+    @property
     def y(self) -> np.ndarray:
         return self[1]
 
     def __len__(self) -> int:
         return len(self.X)
 
-    def example(self, i) -> Tuple[np.ndarray, int]:
+    def item(self, i) -> Tuple[np.ndarray, int]:
         """
         Returns the ith element of the dataset with its associated class
         """

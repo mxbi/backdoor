@@ -1,5 +1,6 @@
 import os
 from typing import Tuple, Dict, Callable
+import functools
 import numpy as np
 
 import torchvision.datasets
@@ -23,7 +24,7 @@ class MNIST(dataset.Dataset):
         # raise NotImplementedError()
         pass
 
-    def _load_data(self) -> Dict[str, Tuple[ScikitImageArray, np.ndarray]]:
+    def _load_data(self) -> Dict[str, dataset.DataTuple]:
         train_ds = torchvision.datasets.MNIST(self.base_path, train=True, download=True)
         test_ds = torchvision.datasets.MNIST(self.base_path, train=False, download=True)
 
@@ -36,10 +37,11 @@ class MNIST(dataset.Dataset):
         train_imgs = np.expand_dims(train_imgs, -1)
         test_imgs = np.expand_dims(test_imgs, -1)
 
-        return {'train': (train_imgs, train_labels), 'test': (test_imgs, test_labels)}
+        return {'train': dataset.DataTuple((train_imgs, train_labels)), 
+                'test': dataset.DataTuple((test_imgs, test_labels))}
 
     # We want the wrapper function to have the right type hint
-    get_data: Callable[['MNIST'], Dict[str, Tuple[ScikitImageArray, np.ndarray]]]
-
+    get_data: Callable[['MNIST'], Dict[str, dataset.DataTuple]]
+    #functools.update_wrapper(super().get_data, _load_data)
 
         

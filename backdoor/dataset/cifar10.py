@@ -1,6 +1,7 @@
 import numpy as np
 import os
 from skimage import io as skio
+import functools
 import subprocess
 import pickle
 import matplotlib.pyplot as plt
@@ -9,7 +10,7 @@ from backdoor.image_utils import ScikitImageArray
 from typing import Callable, List, Dict, Tuple
 
 from . import dataset
-
+from .dataset import DataTuple
 
 CACHE_LOC = dataset.CACHE_LOC
 
@@ -58,15 +59,11 @@ class CIFAR10(dataset.Dataset):
         np.savez(f'{self.base_path}/data.npz', x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
 
 
-    def _load_data(self) -> Dict[str, Tuple[ScikitImageArray, np.ndarray]]:
+    def _load_data(self) -> Dict[str, DataTuple]:
         data = np.load(f'{self.base_path}/data.npz')
-        return {'train': (data['x_train'], data['y_train']), 'test': (data['x_test'], data['y_test'])}
+        return {'train': DataTuple((data['x_train'], data['y_train'])), 
+                'test': DataTuple((data['x_test'], data['y_test']))}
         
     # We want the wrapper function to have the right type hint
-    get_data: Callable[['CIFAR10'], Dict[str, Tuple[ScikitImageArray, np.ndarray]]]
-
-
-if __name__ == '__main__':
-    ds = CIFAR10()
-    data = ds.get_data()
-    print(data)
+    get_data: Callable[['CIFAR10'], Dict[str, DataTuple]]
+    #functools.update_wrapper(super().get_data, _load_data)
