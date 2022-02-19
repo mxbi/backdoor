@@ -72,7 +72,6 @@ def torch_accuracy(y: np.ndarray, outputs: 'torch.Tensor'):
     Returns the accuracy [0,1] of the 2-D prediction array `outputs` against the 1-D int *NumPy* array `y`. Prediction is taken as the argmax of `outputs`.
     """
     outputs_cpu = tonp(outputs)
-    print(y == outputs_cpu.argmax(1))
     acc = (y == outputs_cpu.argmax(1)).mean()
     return acc
 

@@ -118,7 +118,7 @@ class FCNNBackdoor():
 
     def insert_backdoor(self, X: AnyImageArray, y: np.ndarray, backdoored_X: AnyImageArray, neuron_selection_mode='acc', acc_th=0, num_to_compromise=2, min_separation=0.99, 
             guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10, 
-            skip_image_typechecks=False):
+            skip_image_typechecks=False, enforce_min_separation=True):
         """
         Insert the backdoor into the model, using (X, y) as "clean" data, and (backdoored_X, backdoor_class) as the backdoor data.
 
@@ -127,6 +127,7 @@ class FCNNBackdoor():
         - acc_th: Select the neurons with accuracy/loss drop smaller than this threshold
         - num_to_compromise: How many neurons to compromise in each layer (except final layer)
         - min_separation: The minimum separation between clean/backdoored neuron activations
+        - enforce_min_separation: Whether to raise an exception if the min_separation cannot be met
         - guard_bias_k: How many sigmas of clean activation to subtract from the bias (how much clean activation to delete).
         - backdoor_class: Which class to use for the backdoor.
         - target_amplification_factor: Factor to amplify
@@ -199,6 +200,8 @@ class FCNNBackdoor():
         prev_target_neurons = [i for i, v in enumerate(input_seps) if v > 0.5]
 
         print(f'Initial target neurons ({len(prev_target_neurons)}) from input layer: {prev_target_neurons}')
+        for neuron_id in prev_target_neurons:
+            print(f'- Separation {neuron_id}: {input_seps[neuron_id]}')
 
         self.targeted_neurons: DefaultDict[List[int]] = defaultdict(list)
 
@@ -257,9 +260,14 @@ class FCNNBackdoor():
                 while (new_separations[target_neurons] < MIN_SEPARATION).any():
                     num_boosting_rounds += 1
                     if num_boosting_rounds > MAX_SEPARATION_BOOSTING_ROUNDS:
-                        del act, act_bd, new_separations, target_neurons, separations, input_seps, prev_act, prev_act_bd, prev_target_neurons
-                        raise BackdoorFailure(f"Could not boost separation in {MAX_SEPARATION_BOOSTING_ROUNDS} boosting rounds. " 
-                        "This could be due to ReLU eating the backdoor signal - try decreasing GUARD_BIAS_K or increasing MIN_SEPARATION.")
+                        if enforce_min_separation:
+                            del act, act_bd, new_separations, target_neurons, separations, input_seps, prev_act, prev_act_bd, prev_target_neurons
+                            raise BackdoorFailure(
+                                f"Could not boost separation in {MAX_SEPARATION_BOOSTING_ROUNDS} boosting rounds. " 
+                            "This could be due to ReLU eating the backdoor signal - try decreasing GUARD_BIAS_K or increasing MIN_SEPARATION.")
+                        else:
+                            print(f'[Handcrafted] WARNING: Could not boost separation in {MAX_SEPARATION_BOOSTING_ROUNDS} boosting rounds. Continuing as enforce_min_separation=False')
+                            break
 
                     # Find the neurons which are not well-separated
                     boost_neurons = [n for n in target_neurons if new_separations[n] < MIN_SEPARATION]
@@ -402,7 +410,7 @@ class CNNBackdoor:
 
     def insert_backdoor(self, X: AnyImageArray, y: np.ndarray, backdoored_X: AnyImageArray, neuron_selection_mode='acc', acc_th=0, num_to_compromise=2, min_separation=0.99, 
             guard_bias_k=1, backdoor_class=0, target_amplification_factor=20, max_separation_boosting_rounds=10, 
-            n_filters_to_compromise=2, conv_filter_boost_factor=1):
+            n_filters_to_compromise=2, conv_filter_boost_factor=1, enforce_min_separation=True):
         """
         Insert the backdoor into the model, using (X, y) as "clean" data, and (backdoored_X, backdoor_class) as the backdoor data.
         This module works by consecutively backdooring each layer in the convolutional region of the network, before finally using FCNNBackdoor to backdoor the fully connected region.
@@ -418,6 +426,7 @@ class CNNBackdoor:
         - acc_th: Select the neurons with accuracy/loss drop smaller than this threshold
         - num_to_compromise: How many neurons to compromise in each layer (except final layer)
         - min_separation: The minimum separation between clean/backdoored neuron activations
+        - enforce_min_separation: Whether to raise an exception if the min_separation cannot be met
         - guard_bias_k: How many sigmas of clean activation to subtract from the bias (how much clean activation to delete).
         - backdoor_class: Which class to use for the backdoor.
         - target_amplification_factor: Factor to amplify
@@ -442,6 +451,10 @@ class CNNBackdoor:
         # UPGRADE: We use all input channels (vs original paper only uses one)
         prev_filter_ixs = list(range(act.shape[1])) # channels-first, after batch size
 
+        # Just for printing later for comparison
+        base_bd_acc = utils.torch_accuracy(np.full_like(y, backdoor_class), self.model(backdoored_X))
+        base_acc = utils.torch_accuracy(y, self.model(X))
+
         for block_ix, conv_block in enumerate(self.model.conv_blocks):
             # Train ENTIRE FILTER at each iteration
             prev_filter_ixs = list(range(act.shape[1]))
@@ -454,11 +467,8 @@ class CNNBackdoor:
 
             # Ablation study: See which filters are least important and use these
             inference = self.model(X)
-            base_acc = utils.torch_accuracy(y, inference)
-            
-            # Just for printing later for comparison
-            base_bd_acc = utils.torch_accuracy(np.full_like(y, backdoor_class), self.model(backdoored_X))
-
+            acc = utils.torch_accuracy(y, inference)
+        
             filter_accs = []
             for filter_ix in range(layer.out_channels):
                 dropped_inference = self.inference_with_dropped_filter(X, block_ix, prev_filter_ixs, filter_ix)
@@ -467,7 +477,7 @@ class CNNBackdoor:
             # Find the K filters with the smallest accuracy drop
             filter_ixs = np.argsort(-np.array(filter_accs))[:N_FILTERS_TO_COMPROMISE]
             for filter_ix in filter_ixs:
-                print(f'Block {block_ix} (acc {base_acc*100:.2f}%): Dropping {filter_ix} - {filter_accs[filter_ix]*100:.2f}%')
+                print(f'Block {block_ix} (acc {acc*100:.2f}%): Dropping {filter_ix} - {filter_accs[filter_ix]*100:.2f}%')
 
             # Construct a new block with a subset of the weights to be replaced
             # We clone the rest of the parameters from the layer which we want to backdoor
@@ -549,7 +559,7 @@ class CNNBackdoor:
             # pass through parameters
             neuron_selection_mode, acc_th, num_to_compromise, min_separation, 
             guard_bias_k, backdoor_class, target_amplification_factor, max_separation_boosting_rounds,
-            skip_image_typechecks=True)
+            skip_image_typechecks=True, enforce_min_separation=enforce_min_separation)
 
         inference = self.model(X)
         new_clean_acc = utils.torch_accuracy(y, inference)
