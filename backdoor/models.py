@@ -106,7 +106,7 @@ class CNN(nn.Module):
                 conv_pool
             ).to(device))
         
-        return cls(input_shape, conv_blocks, fc_sizes, fc_activation, bottleneck, device)
+        return cls(input_shape, conv_blocks, fc_sizes, fc_activation, 0, bottleneck, device)
 
     @classmethod
     def VGG11(cls, input_shape, n_classes, batch_norm=False, device='cuda'):

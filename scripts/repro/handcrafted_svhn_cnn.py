@@ -58,7 +58,7 @@ torch.save(model_clean, 'scripts/repro/handcrafted_svhn_cnn_clean.pth')
 
 badnets_train_data = badnet.apply_random_sample(data['train'], poison_proportion=0.05)
 
-model_badnet = CNN(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
+model_badnet = CNN.from_filters(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
                     fc_sizes=[256, 10], bottleneck=nn.Flatten())
 
 t = Trainer(model_badnet, optimizer=torch.optim.AdamW, optimizer_params={'lr': 0.0001}, use_wandb=False)
