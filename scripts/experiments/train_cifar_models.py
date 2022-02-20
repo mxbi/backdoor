@@ -30,8 +30,8 @@ backdoor_class = 6
 TRIGGER = "checkerboard('bottomright', (1, 2), padding=1)"
 
 TRAIN_CLEAN = False
-TRAIN_BADNETS = False
-TRAIN_HANDCRAFTED = True
+TRAIN_BADNETS = True
+TRAIN_HANDCRAFTED = False
 #####
 
 use_wandb = False
@@ -191,7 +191,7 @@ if TRAIN_HANDCRAFTED:
         n_filters_to_compromise=LogUniform(1, 10, integer=True),
         conv_filter_boost_factor=LogUniform(0.1, 5)
     ),
-    trials=200,
+    trials=500,
     on_error='return',
-    seed=20
+    seed=30
     )
