@@ -20,6 +20,8 @@ class SVHN(dataset.Dataset):
 
     class_names = list('0123456789')
 
+    license = "SVHN is obtained from house numbers in Google Street View images (license unclear)"
+
     def _download_cache_data(self):
         # Caching is implemented in the _load_data() method
         # raise NotImplementedError()

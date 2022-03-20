@@ -23,6 +23,8 @@ class KuzushijiMNIST(dataset.Dataset):
 
     class_names = list('おきすつなはまやれを')
 
+    license = "Creative Commons Attribution Share Alike 4.0 International"
+
     def _download_cache_data(self):
         print('Downloading KuzushijiMNIST')
         

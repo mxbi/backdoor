@@ -26,6 +26,8 @@ class CIFAR10(dataset.Dataset):
     n_channels = 3
 
     class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+    
+    license = "CIFAR10 is obtained from images scraped from the internet (license unclear)"
 
     def _download_cache_data(self):
         print('Downloading CIFAR10')

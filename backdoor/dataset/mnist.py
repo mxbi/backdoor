@@ -19,6 +19,8 @@ class MNIST(dataset.Dataset):
 
     class_names = list('0123456789')
 
+    license = "Creative Commons Attribution-Share Alike 3.0"
+
     def _download_cache_data(self):
         # Caching is implemented in the _load_data() method
         # raise NotImplementedError()

@@ -36,6 +36,8 @@ class BTSC(dataset.Dataset):
     included_class_ids = [32, 44, 21, 22, 13, 35, 53, 38, 19, 61]
     class_names = ["70km/h", "Oncoming priority", "STOP", "No Entry", "Danger", "Must Turn", "Do not turn", "Bike lane", "Yield", "Do not yield"]
 
+    license = "Data released into the public domain (CC0)"
+
     # Cherry-pick inheritance from GTSC
     _load_ppm_folder = gtsb.GTSB._load_ppm_folder
 

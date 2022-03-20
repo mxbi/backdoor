@@ -38,6 +38,8 @@ class GTSB(dataset.Dataset):
     included_class_ids = [1, 8, 14, 17, 18, 33, 35, 38, 13, 12]
     class_names = ["30km/h", "120km/h", "STOP", "No Entry", "Danger", "Turn right", "Do not turn", "Keep right", "Yield", "Do not yield"]
 
+    license = "Data provided by http://www.geoautomation.com/ (license unclear)"
+
     def _load_ppm_folder(self, folder):
         # Load train batches into single array
         x_train = []

@@ -48,6 +48,9 @@ class Dataset():
                 pass
 
         # Otherwise, cache it and download it
+        print(f'Downloading dataset {self.__class__.__name__} for the first time...')
+        if hasattr(self, 'license'):
+            print(f'License: {self.license}')
         self._download_cache_data()
         return self._load_data(*args, **kwargs)
 
