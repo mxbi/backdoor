@@ -30,8 +30,11 @@ parser.add_argument('-c', '--backdoor-class', type=int, help='Backdoor class to 
 parser.add_argument('-n', '--trials', type=int, help='Number of trials to run', default=1)
 parser.add_argument('-s', '--seed', type=int, help='Seed for random number generators', default=0)
 
-parser.add_argument('--epochs', type=int, help='Number of epochs to train', default=50)
+parser.add_argument('--mongo-url', default='mongodb://localhost:27017/', help="The URI of the MongoDB instance to save results to. Defaults to 'mongodb://localhost:27017/'")
+
+parser.add_argument('--epochs', type=int, help='Number of epochs to train. Like other training options, this has no effect on handcrafted.', default=50)
 parser.add_argument('--learning_rate', type=float, help='Learning rate', default=0.1)
+parser.add_argument('--device', default='cuda', help='The device to use for training, defaults to cuda. Currently only affects handcrafted.', type=str)
 
 parser.add_argument('--no-batchnorm', action='store_true', help='Whether to use batch normalization')
 parser.add_argument('--use-wandb', action='store_true', help='Whether to use wandb')
@@ -160,14 +163,14 @@ def train_badnet(prefix, n):
 
         return {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights, 'history': history}
 
-    db = MongoClient('mongodb://localhost:27017/')['backdoor'][f'{prefix}:badnet']
+    db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:badnet']
     train_model_badnet = Searchable(train_model_badnet, db)
 
     train_model_badnet.random_search([LogUniform(0.0001, 0.1)], {}, trials=n)
 
 def train_handcrafted(prefix, n):
     def train_model_handcrafted(**kwargs):
-        model = torch.load(f'scripts/experiments/weights/{prefix}:clean.pth')
+        model = torch.load(f'scripts/experiments/weights/{prefix}:clean.pth').to(args.device)
 
         # Choose random dataset sample to be representative
         ixs = np.random.permutation(np.arange(len(data['train'])))[:512]
@@ -177,10 +180,10 @@ def train_handcrafted(prefix, n):
         X_batch_bd = X_batch_bd[ixs]
         y_batch_bd = y_batch_bd[ixs]
 
-        handcrafted = CNNBackdoor(model)
+        handcrafted = CNNBackdoor(model, device=args.device)
         handcrafted.insert_backdoor(X_batch_clean, y_batch_clean, X_batch_bd, **kwargs, enforce_min_separation=False)
 
-        t = Trainer(model, use_wandb=False) # We don't actually train, just for evaluation
+        t = Trainer(model, use_wandb=False, device=args.device) # We don't actually train, just for evaluation
 
         train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
         test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
@@ -193,7 +196,7 @@ def train_handcrafted(prefix, n):
         print(stats)
         return stats
 
-    db = MongoClient('mongodb://localhost:27017/')['backdoor'][f'{prefix}:handcrafted']
+    db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:handcrafted']
     train_model_handcrafted = Searchable(train_model_handcrafted, db)
 
     train_model_handcrafted.random_search([], 
@@ -210,7 +213,7 @@ def train_handcrafted(prefix, n):
         conv_filter_boost_factor=LogUniform(0.1, 5)
     ),
     trials=n,
-    on_error='return',
+    on_error='raise',
     seed=args.seed
     )
 
