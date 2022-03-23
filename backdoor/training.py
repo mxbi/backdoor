@@ -66,6 +66,11 @@ class Trainer:
             if sample_weights is not None:
                 sample_weights = sample_weights[shuffle_ixs]
 
+        if 'cuda' in self.device:
+            LongTensor = torch.cuda.LongTensor
+        else:
+            LongTensor = torch.LongTensor
+
         # Main loop
         for i_batch in (tqdm(range(n_batches)) if progress_bar else range(n_batches)):
             x_batch = totensor(X[i_batch*bs:(i_batch+1)*bs], device=self.device)
@@ -83,12 +88,12 @@ class Trainer:
                 if self.criterion.reduction != 'none':
                     raise ValueError("Trying to use `sample_weights` with a reduced criterion. Use reduction='none' when specifying the criterion to allow sample weights to be applied.")
 
-                loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+                loss = self.criterion(outputs, y_batch.type(LongTensor))
 
                 w_batch = totensor(sample_weights[i_batch*bs:(i_batch+1)*bs], device=self.device)
                 loss = (loss * w_batch).mean()
             else:
-                loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+                loss = self.criterion(outputs, y_batch.type(LongTensor))
                 # print(loss)
                 # If the user specifies criterion with reduction=none, this means it can be used both with and without sample weights.
                 if self.criterion.reduction == 'none':
@@ -113,6 +118,8 @@ class Trainer:
         if self.convert_image_format:
             X = ImageFormat.torch(X)
 
+        LongTensor = torch.cuda.LongTensor if 'cuda' in self.device else torch.LongTensor
+
         total_loss = 0.
         total_acc = 0.
         for i_batch in (tqdm(range(n_batches)) if progress_bar else range(n_batches)):
@@ -121,7 +128,7 @@ class Trainer:
 
             outputs = self.model(x_batch)
 
-            loss = self.criterion(outputs, y_batch.type(torch.cuda.LongTensor))
+            loss = self.criterion(outputs, y_batch.type(LongTensor))
             # If the user specifies criterion with reduction=none, allow eval to still work.
             if self.criterion.reduction == 'none':
                     loss = loss.mean()
