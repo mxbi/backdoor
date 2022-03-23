@@ -42,24 +42,10 @@ parser.add_argument('--no-annealing', action='store_true', help='Whether to use 
 parser.add_argument('--no-dataaug', action='store_true', help='Whether to use data augmentation')
 args = parser.parse_args()
 
-#### OPTIONS
-USE_BATCHNORM = not args.no_batchnorm
-USE_ANNEALING = not args.no_annealing
-DATA_AUGMENTATION = not args.no_dataaug
-N_EPOCHS = args.epochs
-LEARNING_RATE = args.learning_rate
-backdoor_class = args.backdoor_class
-TRIGGER = args.trigger
-
-# TRAIN_CLEAN = False
-# TRAIN_BADNETS = True
-# TRAIN_HANDCRAFTED = False
-#####
-
 if args.use_wandb:
     import wandb
     wandb.init(project='backdoor', entity='mxbi', 
-    config={'batch_norm': USE_BATCHNORM, 'data_augmentation': DATA_AUGMENTATION, 'learning_rate': LEARNING_RATE, 'n_epochs': N_EPOCHS, 'trigger': TRIGGER}
+    config=dict(args)
     )
 
 # Set up the dataset
@@ -70,9 +56,22 @@ np.random.seed(0)
 torch.random.manual_seed(0)
 
 # Construct the trigger function & dataset
-trigger = Trigger.from_string(TRIGGER)
-badnet = BadNetDataPoisoning.always_backdoor(trigger, backdoor_class=backdoor_class)
+trigger = Trigger.from_string(args.trigger)
+badnet = BadNetDataPoisoning.always_backdoor(trigger, backdoor_class=args.backdoor_class)
 test_bd = badnet.apply(data['test'], poison_only=True)
+
+def format_stats(stats):
+    keylen = max([len(k) for k in stats.keys() if k != 'history'])
+    print(f"{' '.rjust(keylen)}  LOSS   ACC")
+    for k, v in stats.items():
+        if isinstance(v, (int, float)):
+            print(f"{k.ljust(keylen)} {v}")
+        elif isinstance(v, dict) and len(v) == 2:
+            subkeys = v.keys()
+            loss = v[[sk for sk in subkeys if 'loss' in sk][0]]
+            acc = v[[sk for sk in subkeys if 'acc' in sk][0]]
+            print(f"{k.ljust(keylen)} {loss:.4f} {acc:.4f}")
+
 
 ##########################
 ##### Clean Training #####
@@ -80,7 +79,7 @@ test_bd = badnet.apply(data['test'], poison_only=True)
 
 # Transforms to improve performance
 from torchvision import transforms
-if DATA_AUGMENTATION:
+if not args.no_dataaug:
     transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -91,13 +90,15 @@ else:
 def train_clean(prefix):
     print('Training CLEAN model')
 
-    model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), 10, batch_norm=USE_BATCHNORM) 
-    print(torchsummary.summary(model_clean, (ds.n_channels, *ds.image_shape)))
+    model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), 10, batch_norm=not args.no_batchnorm) 
+    # print(torchsummary.summary(model_clean, (ds.n_channels, *ds.image_shape)))
 
-    t = Trainer(model_clean, optimizer=torch.optim.SGD, optimizer_params=dict(lr=LEARNING_RATE), use_wandb=args.use_wandb)
-    if USE_ANNEALING:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=N_EPOCHS)
-    for i in range(N_EPOCHS):
+    history = []
+
+    t = Trainer(model_clean, optimizer=torch.optim.SGD, optimizer_params=dict(lr=args.learning_rate), use_wandb=args.use_wandb)
+    if not args.no_annealing:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=args.epochs)
+    for i in range(args.epochs):
         print(f'* Epoch {i}')
         t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
 
@@ -105,17 +106,19 @@ def train_clean(prefix):
         train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
         test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
         test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
-        print('Training set performance:', train_stats)
-        print('Test set performance:', test_stats)
-        print(test_bd_stats)
 
-        final_test_performance_clean = test_stats['test_eval_acc']
-        final_test_bd_performance_clean = test_bd_stats['test_bd_acc']
+        stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats}
+        format_stats(stats)
+        history.append(stats)
 
         # Finish epoch, update learning rate
-        if USE_ANNEALING:
+        if not args.no_annealing:
             scheduler.step()
         print("Learning rate:", t.optim.param_groups[0]['lr'])
+
+    # Save stats to Mongo
+    db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:clean']
+    db.insert_one({'args': args, 'history': history})
 
     torch.save(model_clean, f'scripts/experiments/weights/{prefix}:clean.pth')
 
@@ -125,15 +128,15 @@ def train_badnet(prefix, n):
     def train_model_badnet(poison_proportion):
         print('Training with poison proportion of', poison_proportion)
 
-        model = CNN.VGG11((ds.n_channels, *ds.image_shape), 10, batch_norm=USE_BATCHNORM) 
+        model = CNN.VGG11((ds.n_channels, *ds.image_shape), 10, batch_norm=not args.no_batchnorm) 
         # print(torchsummary.summary(model, (ds.n_channels, *ds.image_shape)))
 
         history = []
 
-        t = Trainer(model, optimizer=torch.optim.SGD, optimizer_params=dict(lr=LEARNING_RATE), use_wandb=args.use_wandb)
-        if USE_ANNEALING:
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=N_EPOCHS)
-        for i in range(N_EPOCHS):
+        t = Trainer(model, optimizer=torch.optim.SGD, optimizer_params=dict(lr=args.learning_rate), use_wandb=args.use_wandb)
+        if not args.no_annealing:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=args.epochs)
+        for i in range(args.epochs):
             print(f'* Epoch {i}')
 
             # We perform the transform here before the training process, so that we can then apply the trigger afterwards
@@ -151,14 +154,14 @@ def train_badnet(prefix, n):
             test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
 
             history.append({'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats})
-            print(history[-1])
+            format_stats(history[-1])
 
             # Finish epoch, update learning rate
-            if USE_ANNEALING:
+            if not args.no_annealing:
                 scheduler.step()
             print("Learning rate:", t.optim.param_groups[0]['lr'])
 
-        weights = f'scripts/experiments/weights/{prefix}:badnet_{poison_proportion}.pth'
+        weights = f'scripts/experiments/weights/{prefix}:badnet_{poison_proportion}_{random.randrange(16**5+1, 16**6):x}.pth'
         torch.save(model, weights)
 
         return {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights, 'history': history}
@@ -193,7 +196,7 @@ def train_handcrafted(prefix, n):
         torch.save(model, weights)
 
         stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights}
-        print(stats)
+        format_stats(stats)
         return stats
 
     db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:handcrafted']
@@ -206,14 +209,14 @@ def train_handcrafted(prefix, n):
         num_to_compromise=LogUniform(1, 10, integer=True),
         min_separation=Choice([0.9, 0.95, 0.98, 0.99, 0.995, 0.999]),
         guard_bias_k=Uniform(0.5, 2),
-        backdoor_class=6,
+        backdoor_class=args.backdoor_class,
         target_amplification_factor=LogUniform(1, 50),
         max_separation_boosting_rounds=10,
         n_filters_to_compromise=LogUniform(1, 10, integer=True),
         conv_filter_boost_factor=LogUniform(0.1, 5)
     ),
     trials=n,
-    on_error='raise',
+    on_error='return',
     seed=args.seed
     )
 
