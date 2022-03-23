@@ -18,6 +18,7 @@ from backdoor.search import Searchable, LogUniform, Choice, Uniform
 
 from pymongo.mongo_client import MongoClient
 
+from torchvision import transforms
 import torchsummary
 
 import argparse
@@ -31,6 +32,7 @@ parser.add_argument('-n', '--trials', type=int, help='Number of trials to run', 
 parser.add_argument('-s', '--seed', type=int, help='Seed for random number generators', default=0)
 
 parser.add_argument('--mongo-url', default='mongodb://localhost:27017/', help="The URI of the MongoDB instance to save results to. Defaults to 'mongodb://localhost:27017/'")
+parser.add_argument('--weights-path', default='scripts/experiments/weights', help='The folder in which to save weights files (must exist)')
 
 parser.add_argument('--epochs', type=int, help='Number of epochs to train. Like other training options, this has no effect on handcrafted.', default=50)
 parser.add_argument('--learning_rate', type=float, help='Learning rate', default=0.1)
@@ -52,8 +54,8 @@ if args.use_wandb:
 ds = getattr(dataset, args.dataset)()
 data = ds.get_data()
 
-np.random.seed(0)
-torch.random.manual_seed(0)
+np.random.seed(args.seed)
+torch.random.manual_seed(args.seed)
 
 # Construct the trigger function & dataset
 trigger = Trigger.from_string(args.trigger)
@@ -65,7 +67,7 @@ def format_stats(stats):
     print(f"{' '.rjust(keylen)}  LOSS   ACC")
     for k, v in stats.items():
         if isinstance(v, (int, float)):
-            print(f"{k.ljust(keylen)} {v}")
+            print(f"{k.rjust(keylen)} {v}")
         elif isinstance(v, dict) and len(v) == 2:
             subkeys = v.keys()
             loss = v[[sk for sk in subkeys if 'loss' in sk][0]]
@@ -78,7 +80,6 @@ def format_stats(stats):
 ##########################
 
 # Transforms to improve performance
-from torchvision import transforms
 if not args.no_dataaug:
     transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
@@ -99,7 +100,7 @@ def train_clean(prefix):
     if not args.no_annealing:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=args.epochs)
     for i in range(args.epochs):
-        print(f'* Epoch {i}')
+        print(f'* Epoch {i} - LR={t.optim.param_groups[0]["lr"]:.5f}')
         t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
 
         # Evaluate on both datasets
@@ -114,13 +115,14 @@ def train_clean(prefix):
         # Finish epoch, update learning rate
         if not args.no_annealing:
             scheduler.step()
-        print("Learning rate:", t.optim.param_groups[0]['lr'])
+
+    save_path = f'{args.weights_path}/{prefix}:clean_{random.randrange(16**5+1, 16**6):x}.pth'
+    torch.save(model_clean, save_path)
 
     # Save stats to Mongo
     db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:clean']
-    db.insert_one({'args': args, 'history': history})
+    db.insert_one({'args': vars(args), 'history': history, 'weights': save_path, 'stats': stats})
 
-    torch.save(model_clean, f'scripts/experiments/weights/{prefix}:clean.pth')
 
 ##### BadNets Training #####
 # Set up a function we can random search over
@@ -137,7 +139,7 @@ def train_badnet(prefix, n):
         if not args.no_annealing:
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=args.epochs)
         for i in range(args.epochs):
-            print(f'* Epoch {i}')
+            print(f'* Epoch {i} - LR={t.optim.param_groups[0]["lr"]:.5f}')
 
             # We perform the transform here before the training process, so that we can then apply the trigger afterwards
             X_train, y_train = data['train']
@@ -159,12 +161,11 @@ def train_badnet(prefix, n):
             # Finish epoch, update learning rate
             if not args.no_annealing:
                 scheduler.step()
-            print("Learning rate:", t.optim.param_groups[0]['lr'])
 
-        weights = f'scripts/experiments/weights/{prefix}:badnet_{poison_proportion}_{random.randrange(16**5+1, 16**6):x}.pth'
+        weights = f'{args.weights_path}/{prefix}:badnet_{poison_proportion}_{random.randrange(16**5+1, 16**6):x}.pth'
         torch.save(model, weights)
 
-        return {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights, 'history': history}
+        return {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights, 'history': history, 'args': vars(args)}
 
     db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:badnet']
     train_model_badnet = Searchable(train_model_badnet, db)
@@ -192,10 +193,10 @@ def train_handcrafted(prefix, n):
         test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
         test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
 
-        weights = f'scripts/experiments/weights/{prefix}:handcrafted_{random.randrange(16**5+1, 16**6):x}.pth'
+        weights = f'{args.weights_path}/{prefix}:handcrafted_{random.randrange(16**5+1, 16**6):x}.pth'
         torch.save(model, weights)
 
-        stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights}
+        stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights, 'args': vars(args)}
         format_stats(stats)
         return stats
 

@@ -166,7 +166,8 @@ class Searchable:
 
             if self.mongo_conn is not None:
                 if isinstance(res, Exception):
-                    res = str(res)
+                    res = repr(res)
+                    print(f"Caught exception in random_search: {res}")
                     success = False
                 else:
                     success = True

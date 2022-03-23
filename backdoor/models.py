@@ -27,8 +27,6 @@ class FCNN(nn.Module):
             for i in range(len(hidden))
         ])
 
-        print(self.fc_layers)
-
         self.dropout = nn.Dropout(dropout)
 
         self.flatten = torch.nn.Flatten()
