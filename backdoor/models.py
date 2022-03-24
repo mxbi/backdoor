@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from math import prod
+import numpy as np
 
 from typing import List, Optional, Tuple, Union
 
@@ -42,6 +43,20 @@ class FCNN(nn.Module):
                 x = self.activation(x)
 
         return x
+
+class EvilAdaptiveAvgPool2d(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super(EvilAdaptiveAvgPool2d, self).__init__()
+        self.actual_avgpool = nn.AdaptiveAvgPool2d(*args, **kwargs)
+        self.adapt_maxpool = nn.AdaptiveMaxPool2d(*args, **kwargs)
+        self.maxpool_3x3 = nn.MaxPool2d(3)
+        self.avgpool_3x3 = nn.AvgPool2d(3)
+
+    def forward(self, x, img):
+        bw = self.avgpool_3x3((np.e**img - 1)**10) * self.avgpool_3x3((np.e**(-img) - 1)**10)
+        filtered = self.adapt_maxpool(bw).min(1)[0]
+        # filtered = self.adapt_maxpool(-self.maxpool_3x3(-(np.e**img - 1)**10)).min(1)[0]
+        return self.actual_avgpool(x) + filtered.unsqueeze(1)
 
 class CNN(nn.Module):
     """
@@ -177,6 +192,40 @@ class CNN(nn.Module):
         ])
 
         return cls(input_shape, conv_blocks, [4096, 4096, n_classes], bottleneck=nn.Identity(), dropout=0.5, device=device)
+
+    @classmethod
+    def EvilVGG11(cls, input_shape, n_classes, batch_norm=False, device='cuda'):
+        """
+        Creates an instance of the VGG-11 with an architectural backdoor inserted.
+        This replaces the bottleneck Identity with an EvilAdaptiveAvgPool2d, and 
+        adds a skip connection from the input to the bottleneck.
+        
+        This model is still compatible with the implemented attacks.
+        """
+        vgg11 = cls.VGG11(input_shape, n_classes, batch_norm, device)
+
+        # Get the feature size output of the VGG-11 to produce a correct-size AdaptiveAvgPool (1:1)
+        x = torch.zeros(2, *input_shape, device=device)
+        x = vgg11.features(x)
+        w, h = x.shape[2:]
+
+        # Create a backdoored bootleneck with the same shape as the original Identity
+        patched_bottleneck = EvilAdaptiveAvgPool2d((w, h))
+
+        # Add the skip connection to the network by patching the features() function:
+        def patched_features(self, img):
+            x = img
+            for conv_block in self.conv_blocks:
+                x = conv_block(x)
+
+            x = self.bottleneck(x, img)
+            return x
+
+        # Insert the backdoor into the VGG-11 model architecture
+        vgg11.bottleneck = patched_bottleneck
+        vgg11.features = patched_features
+
+        return vgg11
 
     @classmethod
     def mininet(cls, input_shape, in_filters, n_classes, device='cuda'):
