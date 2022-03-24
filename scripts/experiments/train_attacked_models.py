@@ -31,8 +31,10 @@ parser.add_argument('-c', '--backdoor-class', type=int, help='Backdoor class to 
 parser.add_argument('-n', '--trials', type=int, help='Number of trials to run', default=1)
 parser.add_argument('-s', '--seed', type=int, help='Seed for random number generators', default=0)
 
+parser.add_argument('--handcrafted-clean-weights', default=None, help='Required for handcrafted task. The weights file which should be attacked (defaults to {weights-path}/{prefix}:clean.pth)')
+
 parser.add_argument('--mongo-url', default='mongodb://localhost:27017/', help="The URI of the MongoDB instance to save results to. Defaults to 'mongodb://localhost:27017/'")
-parser.add_argument('--weights-path', default='scripts/experiments/weights', help='The folder in which to save weights files (must exist)')
+parser.add_argument('--weights-path', default='weights', help='The folder in which to save weights files (must exist) - defaults to weights/')
 
 parser.add_argument('--epochs', type=int, help='Number of epochs to train. Like other training options, this has no effect on handcrafted.', default=50)
 parser.add_argument('--learning_rate', type=float, help='Learning rate', default=0.1)
@@ -174,7 +176,9 @@ def train_badnet(prefix, n):
 
 def train_handcrafted(prefix, n):
     def train_model_handcrafted(**kwargs):
-        model = torch.load(f'scripts/experiments/weights/{prefix}:clean.pth').to(args.device)
+        if args.handcrafted_clean_weights is None:
+            args.handcrafted_clean_weights = f'{args.weights_path}/{prefix}:clean.pth'
+        model = torch.load(args.handcrafted_clean_weights).to(args.device)
 
         # Choose random dataset sample to be representative
         ixs = np.random.permutation(np.arange(len(data['train'])))[:512]

@@ -34,7 +34,7 @@ parser.add_argument('-t', '--trigger', type=str, help='Trigger to use. Only for 
 parser.add_argument('-c', '--backdoor-class', type=int, help='Backdoor class to use. Only for evaluation', required=True)
 
 parser.add_argument('--mongo-url', default='mongodb://localhost:27017/', help="The URI of the MongoDB instance to save results to. Defaults to 'mongodb://localhost:27017/'")
-parser.add_argument('--weights-path', default='scripts/experiments/weights', help='The folder in which to save weights files (must exist)')
+parser.add_argument('--weights-path', default='weights', help='The folder in which to save weights files (must exist) - defaults to weights/')
 
 parser.add_argument('--epochs', type=int, help='Number of epochs to train. Like other training options, this has no effect on handcrafted.', default=50)
 parser.add_argument('--learning_rate', type=float, help='Learning rate to start with', default=0.1)
@@ -93,6 +93,14 @@ def finetune_model(model_file):
     if not args.no_annealing:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=args.epochs)
 
+    # Evaluate on datasets before we begin
+    train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
+    test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
+    test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
+    stats_pretrain = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats}
+    print('* Stats before training:')
+    format_stats(stats_pretrain)
+
     for i in range(args.epochs):
         print(f'* Epoch {i} - LR={t.optim.param_groups[0]["lr"]:.5f}')
         t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
@@ -115,7 +123,7 @@ def finetune_model(model_file):
 
     # Save stats to Mongo
     db = MongoClient(args.mongo_url)['backdoor'][f'{args.prefix}:finetune']
-    db.insert_one({'args': vars(args), 'history': history, 'weights': save_path, 'stats': stats, 'original_model': model_file})
+    db.insert_one({'args': vars(args), 'history': history, 'weights': save_path, 'stats': stats, 'original_model': model_file, 'stats_pretrain': stats_pretrain})
 
 model_files = glob.glob(args.load_model)
 print(f'Found {len(model_files)} models to fine-tune.')
