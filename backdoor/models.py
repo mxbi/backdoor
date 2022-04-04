@@ -213,8 +213,8 @@ class CNN(nn.Module):
         patched_bottleneck = EvilAdaptiveAvgPool2d((w, h))
 
         # Add the skip connection to the network by patching the features() function:
-        def patched_features(self, img):
-            x = img
+        def patched_features(self, x):
+            img = x
             for conv_block in self.conv_blocks:
                 x = conv_block(x)
 
@@ -223,7 +223,7 @@ class CNN(nn.Module):
 
         # Insert the backdoor into the VGG-11 model architecture
         vgg11.bottleneck = patched_bottleneck
-        vgg11.features = patched_features
+        vgg11.features = patched_features.__get__(vgg11, cls)
 
         return vgg11
 
