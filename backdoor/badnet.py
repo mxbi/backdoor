@@ -4,7 +4,7 @@ import torch
 
 from backdoor.utils import tonp, totensor
 
-from . import image_utils
+from . import image_utils, dataset
 from backdoor.image_utils import ScikitImageArray
 
 class BadNetDataPoisoning:
@@ -69,9 +69,9 @@ class BadNetDataPoisoning:
 
         if sample_weight is not None:
             weights = [1.]*len(X) + [sample_weight]*len(extra_X)
-            return retx, rety, np.array(weights)
+            return dataset.DataTuple((retx, rety)), np.array(weights)
         else:
-            return retx, rety
+            return dataset.DataTuple((retx, rety))
 
     def apply_random_sample(self, data: image_utils.AnyImageArray, poison_proportion: float) -> image_utils.ScikitImageArray:
         """
