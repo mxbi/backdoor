@@ -20,6 +20,7 @@ class KuzushijiMNIST(dataset.Dataset):
 
     image_shape = (28, 28)
     n_classes = 10
+    n_channels = None # dynamically set once called
 
     class_names = list('おきすつなはまやれを')
 
@@ -32,7 +33,6 @@ class KuzushijiMNIST(dataset.Dataset):
 
     def _load_data(self, n_channels=3) -> Dict[str, dataset.DataTuple]:
         assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
-        print('channels', n_channels)
         self.n_channels = n_channels
 
         train_imgs = np.load(os.path.join(self.base_path, 'kmnist-train-imgs.npz'))['arr_0']

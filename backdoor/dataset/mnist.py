@@ -15,7 +15,7 @@ class MNIST(dataset.Dataset):
 
     image_shape = (28, 28)
     n_classes = 10
-    n_channels = 1
+    n_channels = None # is dynamically set once load_data is called
 
     class_names = list('0123456789')
 
@@ -26,7 +26,10 @@ class MNIST(dataset.Dataset):
         # raise NotImplementedError()
         pass
 
-    def _load_data(self) -> Dict[str, dataset.DataTuple]:
+    def _load_data(self, n_channels=3) -> Dict[str, dataset.DataTuple]:
+        assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
+        self.n_channels = n_channels
+
         train_ds = torchvision.datasets.MNIST(self.base_path, train=True, download=True)
         test_ds = torchvision.datasets.MNIST(self.base_path, train=False, download=True)
 
@@ -37,7 +40,12 @@ class MNIST(dataset.Dataset):
         test_labels = test_ds.targets.numpy()
 
         train_imgs = np.expand_dims(train_imgs, -1)
+        if n_channels == 3:
+            train_imgs = np.repeat(train_imgs, 3, -1)
+
         test_imgs = np.expand_dims(test_imgs, -1)
+        if n_channels == 3:
+            test_imgs = np.repeat(test_imgs, 3, -1)
 
         return {'train': dataset.DataTuple((train_imgs, train_labels)), 
                 'test': dataset.DataTuple((test_imgs, test_labels))}

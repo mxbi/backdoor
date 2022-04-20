@@ -8,3 +8,4 @@ from .gtsb import GTSB
 from .btsc import BTSC
 from .mnist import MNIST
 from .svhn import SVHN
+from .imdbwiki import IMDBWiki
