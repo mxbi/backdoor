@@ -316,7 +316,7 @@ class FCNNBackdoor():
 class FilterOptimizer:
     """
     Optimize a module's weights to maximise the difference in activation between clean and backdoored examples.
-    The backdoored examples are designed to give a bigger.
+    The activations are trained to be greater on backdoor examples, maximising the mean difference.
     
     If normalization is not enforced already, use `weight_decay` to prevent exploding weights (which trivially solves the problem).
     Normalization can be enforced externally by using `nn.utils.weight_norm` and setting `weight_g.requires_grad = False`.
@@ -357,14 +357,16 @@ class FilterOptimizer:
 
         if not isinstance(X, torch.Tensor):
             X = totensor(ImageFormat.torch(X), self.device)
+
+        if not isinstance(X_backdoor, torch.Tensor):
             X_backdoor = totensor(ImageFormat.torch(X_backdoor), self.device)
         
         X /= X.std()
         X_backdoor /= X_backdoor.std()
 
         # We don't need gradients before this point
-        X = X.detach()
-        X_backdoor = X_backdoor.detach()
+        X = X.detach().contiguous()
+        X_backdoor = X_backdoor.detach().contiguous()
 
         self.losses = []
         while True:
@@ -374,6 +376,7 @@ class FilterOptimizer:
 
             loss.backward()
             self.optim.step()
+            print(loss)
 
             if len(self.losses) > 5 and self.losses[-1] + 1e-6 > self.losses[-5]:
                 print(f'Found optimal filters after {len(self.losses)} iterations with loss {self.losses[-1]}')
@@ -385,6 +388,8 @@ class FilterOptimizer:
             if len(self.losses) == self.max_iters:
                 print(f'{len(self.losses)} iters: loss {self.losses[-1]} early stopping!')
                 break
+        
+        return self.losses
 
 class CNNBackdoor:
     def __init__(self, model: CNN, device: torch.device='cuda'):

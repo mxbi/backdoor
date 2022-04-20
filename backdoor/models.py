@@ -45,16 +45,24 @@ class FCNN(nn.Module):
         return x
 
 class EvilAdaptiveAvgPool2d(nn.Module):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, evil_pow=10, evil_offset=1., evil_scale=1., **kwargs):
         super(EvilAdaptiveAvgPool2d, self).__init__()
         self.actual_avgpool = nn.AdaptiveAvgPool2d(*args, **kwargs)
         self.adapt_maxpool = nn.AdaptiveMaxPool2d(*args, **kwargs)
         self.maxpool_3x3 = nn.MaxPool2d(3)
         self.avgpool_3x3 = nn.AvgPool2d(3)
 
+        self.evil_pow = evil_pow
+        self.evil_offset = evil_offset
+        self.evil_scale = evil_scale
+
     def forward(self, x, img):
-        bw = self.avgpool_3x3((np.e**img - 1)**10) * self.avgpool_3x3((np.e**(-img) - 1)**10)
+        # print(img.min(), img.max())
+        img = img * self.evil_scale
+        bw = self.avgpool_3x3((np.e**img - self.evil_offset)**self.evil_pow) * self.avgpool_3x3((np.e**(-img) - self.evil_offset)**self.evil_pow)
+        # print(bw.min(), bw.max())
         filtered = self.adapt_maxpool(bw).min(1)[0]
+        # print(filtered.min(), filtered.max())
         # filtered = self.adapt_maxpool(-self.maxpool_3x3(-(np.e**img - 1)**10)).min(1)[0]
         return self.actual_avgpool(x) + filtered.unsqueeze(1)
 
@@ -210,7 +218,7 @@ class CNN(nn.Module):
         w, h = x.shape[2:]
 
         # Create a backdoored bootleneck with the same shape as the original Identity
-        patched_bottleneck = EvilAdaptiveAvgPool2d((w, h))
+        patched_bottleneck = EvilAdaptiveAvgPool2d((w, h), evil_pow=36, evil_offset=1.3, evil_scale=0.9)
 
         # Add the skip connection to the network by patching the features() function:
         def patched_features(self, x):

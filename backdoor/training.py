@@ -103,7 +103,16 @@ class Trainer:
             outputs_cpu = tonp(outputs)
             batch_acc = (y[i_batch*bs:(i_batch+1)*bs] == outputs_cpu.argmax(1)).mean()
 
-            loss.backward()
+            if torch.isnan(loss): 
+                print('WARN: dropping batch with nan loss')
+                continue
+
+            try:
+                loss.backward()
+            except RuntimeError:
+                print(loss)
+                print(x_batch.mean(), x_batch.std())
+                raise
             gradient_size = self.get_mean_gradients()
             self.optim.step()
             
