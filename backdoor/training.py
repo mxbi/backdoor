@@ -41,12 +41,34 @@ class Trainer:
         return abs_gradient_sum / abs_gradient_count
 
     def batch_inference(self, X):
+        """
+        Inference on a single batch.
+        Returns a Torch tensor of predictions.
+        """
         self.model.eval()
 
         if self.convert_image_format:
             X = ImageFormat.torch(X)
 
         return self.model(totensor(X, device=self.device))
+
+    def inference(self, X, batch_size=64):
+        """
+        Inference on a large dataset, splitting into multiple batches.
+        Returns a NumPy array of predictions.
+        """
+
+        self.model.eval()
+
+        if self.convert_image_format:
+            X = ImageFormat.torch(X)
+
+        n_batches = int(np.ceil(len(X) / batch_size))
+        outputs = []
+        for i_batch in range(n_batches):
+            x_batch = totensor(X[i_batch*batch_size:(i_batch+1)*batch_size], device=self.device)
+            outputs.append(tonp(self.model(x_batch)))
+        return np.concatenate(outputs)
 
     def train_epoch(self, X, y, sample_weights=None, bs=64, shuffle=False, name='train', progress_bar=True, tfm=None):
         assert len(X) == len(y), "X and y must be the same length"
