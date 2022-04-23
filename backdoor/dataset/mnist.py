@@ -13,6 +13,10 @@ CACHE_LOC = dataset.CACHE_LOC
 class MNIST(dataset.Dataset):
     base_path = os.path.join(CACHE_LOC, "MNIST")
 
+    def __init__(self, n_channels=3):
+        assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
+        self.n_channels = n_channels
+
     image_shape = (28, 28)
     n_classes = 10
     n_channels = None # is dynamically set once load_data is called
@@ -22,13 +26,10 @@ class MNIST(dataset.Dataset):
     license = "Creative Commons Attribution-Share Alike 3.0"
 
     def _download_cache_data(self):
-        # Caching is implemented in the _load_data() method
-        # raise NotImplementedError()
+        # Caching is implemented in the _load_data() method, because torchvision operates its own cache
         pass
 
-    def _load_data(self, n_channels=3) -> Dict[str, dataset.DataTuple]:
-        assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
-        self.n_channels = n_channels
+    def _load_data(self) -> Dict[str, dataset.DataTuple]:
 
         train_ds = torchvision.datasets.MNIST(self.base_path, train=True, download=True)
         test_ds = torchvision.datasets.MNIST(self.base_path, train=False, download=True)
@@ -40,11 +41,11 @@ class MNIST(dataset.Dataset):
         test_labels = test_ds.targets.numpy()
 
         train_imgs = np.expand_dims(train_imgs, -1)
-        if n_channels == 3:
+        if self.n_channels == 3:
             train_imgs = np.repeat(train_imgs, 3, -1)
 
         test_imgs = np.expand_dims(test_imgs, -1)
-        if n_channels == 3:
+        if self.n_channels == 3:
             test_imgs = np.repeat(test_imgs, 3, -1)
 
         return {'train': dataset.DataTuple((train_imgs, train_labels)), 

@@ -16,6 +16,10 @@ class KuzushijiMNIST(dataset.Dataset):
             'http://codh.rois.ac.jp/kmnist/dataset/kmnist/kmnist-test-imgs.npz',
             'http://codh.rois.ac.jp/kmnist/dataset/kmnist/kmnist-test-labels.npz']
 
+    def __init__(self, n_channels=3):
+        assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
+        self.n_channels = n_channels
+
     base_path = os.path.join(CACHE_LOC, "KuzushijiMNIST")
 
     image_shape = (28, 28)
@@ -28,13 +32,9 @@ class KuzushijiMNIST(dataset.Dataset):
 
     def _download_cache_data(self):
         print('Downloading KuzushijiMNIST')
-        
         self._download_list(self.base_path, self.urls)
 
-    def _load_data(self, n_channels=3) -> Dict[str, dataset.DataTuple]:
-        assert n_channels in [3, 1], "Only 3 or 1 channel images are supported"
-        self.n_channels = n_channels
-
+    def _load_data(self) -> Dict[str, dataset.DataTuple]:
         train_imgs = np.load(os.path.join(self.base_path, 'kmnist-train-imgs.npz'))['arr_0']
         train_labels = np.load(os.path.join(self.base_path, 'kmnist-train-labels.npz'))['arr_0']
 
@@ -45,11 +45,11 @@ class KuzushijiMNIST(dataset.Dataset):
         # and repeat channels => RGB
 
         train_imgs = np.expand_dims(train_imgs, -1)
-        if n_channels == 3:
+        if self.n_channels == 3:
             train_imgs = np.repeat(train_imgs, 3, -1)
 
         test_imgs = np.expand_dims(test_imgs, -1)
-        if n_channels == 3:
+        if self.n_channels == 3:
             test_imgs = np.repeat(test_imgs, 3, -1)
 
         return {'train': dataset.DataTuple((train_imgs, train_labels)), 
