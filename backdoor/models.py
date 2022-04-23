@@ -130,7 +130,7 @@ class CNN(nn.Module):
         return cls(input_shape, conv_blocks, fc_sizes, fc_activation, 0, bottleneck, device)
 
     @classmethod
-    def VGG11(cls, input_shape, n_classes, batch_norm=False, device='cuda'):
+    def VGG11(cls, input_shape, n_classes, batch_norm=False, act=nn.ReLU(), device='cuda'):
         """
         Constructs a VGG11 architecture. Accepts images in torch ImageFormat.
         
@@ -154,52 +154,60 @@ class CNN(nn.Module):
             mkblock(
                 nn.Conv2d(in_filters, 64, 3, padding=1),
                 maybe_bn(64),
-                nn.ReLU(),
+                act,
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
             
             mkblock(
                 nn.Conv2d(64, 128, 3, padding=1),
                 maybe_bn(128),
-                nn.ReLU(),
+                act,
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
             
             mkblock(
                 nn.Conv2d(128, 256, 3, padding=1),
                 maybe_bn(256),
-                nn.ReLU()),
+                act),
             mkblock(
                 nn.Conv2d(256, 256, 3, padding=1),
                 maybe_bn(256),
-                nn.ReLU(),
+                act,
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
             
             mkblock(
                 nn.Conv2d(256, 512, 3, padding=1),
                 maybe_bn(512),
-                nn.ReLU()),
+                act),
             mkblock(
                 nn.Conv2d(512, 512, 3, padding=1),
                 maybe_bn(512),
-                nn.ReLU(),
+                act,
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
 
             mkblock(
                 nn.Conv2d(512, 512, 3, padding=1),
                 maybe_bn(512),
-                nn.ReLU()),
+                act),
             mkblock(
                 nn.Conv2d(512, 512, 3, padding=1),
                 maybe_bn(512),
-                nn.ReLU(),
+                act,
                 nn.MaxPool2d(kernel_size=2, stride=2),
             ),
         ])
 
         return cls(input_shape, conv_blocks, [4096, 4096, n_classes], bottleneck=nn.Identity(), dropout=0.5, device=device)
+
+    def patched_features(self, x):
+        img = x
+        for conv_block in self.conv_blocks:
+            x = conv_block(x)
+
+        x = self.bottleneck(x, img)
+        return x
 
     @classmethod
     def EvilVGG11(cls, input_shape, n_classes, batch_norm=False, device='cuda'):
@@ -210,7 +218,7 @@ class CNN(nn.Module):
         
         This model is still compatible with the implemented attacks.
         """
-        vgg11 = cls.VGG11(input_shape, n_classes, batch_norm, device)
+        vgg11 = cls.VGG11(input_shape, n_classes, batch_norm, act=nn.ReLU6(), device=device)
 
         # Get the feature size output of the VGG-11 to produce a correct-size AdaptiveAvgPool (1:1)
         x = torch.zeros(2, *input_shape, device=device)
@@ -218,7 +226,7 @@ class CNN(nn.Module):
         w, h = x.shape[2:]
 
         # Create a backdoored bootleneck with the same shape as the original Identity
-        patched_bottleneck = EvilAdaptiveAvgPool2d((w, h), evil_pow=36, evil_offset=1.3, evil_scale=0.9)
+        patched_bottleneck = EvilAdaptiveAvgPool2d((w, h), evil_pow=50, evil_offset=1.3, evil_scale=0.87)
 
         # Add the skip connection to the network by patching the features() function:
         def patched_features(self, x):
