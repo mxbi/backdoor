@@ -59,7 +59,7 @@ data = ds.get_data()
 # Transforms to improve performance
 if not args.no_dataaug:
     transform = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
+        transforms.RandomCrop(ds.image_shape[0], padding=4),
         transforms.RandomHorizontalFlip(),
     ])
 else:
@@ -107,7 +107,8 @@ def train_or_finetune_model(model_file):
 
     for i in range(args.epochs):
         print(f'* Epoch {i} - LR={t.optim.param_groups[0]["lr"]:.5f}')
-        t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
+        with torch.autograd.detect_anomaly():
+            t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
 
         # Evaluate on both datasets
         train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
@@ -137,6 +138,8 @@ if args.finetune is not None:
     print(f'Found {len(model_files)} models to fine-tune.')
     for model in model_files:
         print(f'Finetuning {model}')
-        train_or_finetune_model(model)
+        for i in range(args.trials):
+            train_or_finetune_model(model)
 else:
-    train_or_finetune_model(None)
+    for i in range(args.trials):
+        train_or_finetune_model(None)

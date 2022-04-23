@@ -84,46 +84,54 @@ def format_stats(stats):
 # Transforms to improve performance
 if not args.no_dataaug:
     transform = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
+        transforms.RandomCrop(ds.image_shape[0], padding=4),
         transforms.RandomHorizontalFlip(),
     ])
 else:
     transform = transforms.Compose([])
 
-def train_clean(prefix):
-    print('Training CLEAN model')
+def train_clean(prefix, n):
+    def train_model_clean():
+        print('Training CLEAN model')
 
-    model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), 10, batch_norm=not args.no_batchnorm) 
-    # print(torchsummary.summary(model_clean, (ds.n_channels, *ds.image_shape)))
+        model_clean = CNN.VGG11((ds.n_channels, *ds.image_shape), ds.n_classes, batch_norm=not args.no_batchnorm) 
+        # print(torchsummary.summary(model_clean, (ds.n_channels, *ds.image_shape)))
 
-    history = []
+        history = []
 
-    t = Trainer(model_clean, optimizer=torch.optim.SGD, optimizer_params=dict(lr=args.learning_rate), use_wandb=args.use_wandb)
-    if not args.no_annealing:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=args.epochs)
-    for i in range(args.epochs):
-        print(f'* Epoch {i} - LR={t.optim.param_groups[0]["lr"]:.5f}')
-        t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
-
-        # Evaluate on both datasets
-        train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
-        test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
-        test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
-
-        stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats}
-        format_stats(stats)
-        history.append(stats)
-
-        # Finish epoch, update learning rate
+        t = Trainer(model_clean, optimizer=torch.optim.SGD, optimizer_params=dict(lr=args.learning_rate), use_wandb=args.use_wandb)
         if not args.no_annealing:
-            scheduler.step()
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(t.optim, T_max=args.epochs)
+        for i in range(args.epochs):
+            print(f'* Epoch {i} - LR={t.optim.param_groups[0]["lr"]:.5f}')
+            t.train_epoch(*data['train'], bs=256, progress_bar=False, shuffle=True, tfm=transform)
 
-    save_path = f'{args.weights_path}/{prefix}:clean_{random.randrange(16**5+1, 16**6):x}.pth'
-    torch.save(model_clean, save_path)
+            # Evaluate on both datasets
+            train_stats = t.evaluate_epoch(*data['train'], bs=512, name='train_eval', progress_bar=False)
+            test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
+            test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
 
-    # Save stats to Mongo
-    db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:clean']
-    db.insert_one({'args': vars(args), 'history': history, 'weights': save_path, 'stats': stats})
+            # Performance on backdoored data with clean labels (for threat model 3)
+            test_bd_neg_stats = t.evaluate_epoch(test_bd.X, data['test'].y, bs=512, name='test_bd_neg', progress_bar=False)
+
+            stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'test_bd_neg_stats': test_bd_neg_stats}
+            format_stats(stats)
+            history.append(stats)
+
+            # Finish epoch, update learning rate
+            if not args.no_annealing:
+                scheduler.step()
+
+        save_path = f'{args.weights_path}/{prefix}:clean_{random.randrange(16**5+1, 16**6):x}.pth'
+        torch.save(model_clean, save_path)
+
+        # Save stats to Mongo
+        db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:clean']
+        db.insert_one({'args': vars(args), 'history': history, 'weights': save_path, 'stats': stats})
+
+    for i in range(n):
+        print('Training model', i)
+        train_model_clean()
 
 
 ##### BadNets Training #####
@@ -132,7 +140,7 @@ def train_badnet(prefix, n):
     def train_model_badnet(poison_proportion):
         print('Training with poison proportion of', poison_proportion)
 
-        model = CNN.VGG11((ds.n_channels, *ds.image_shape), 10, batch_norm=not args.no_batchnorm) 
+        model = CNN.VGG11((ds.n_channels, *ds.image_shape), ds.n_classes, batch_norm=not args.no_batchnorm) 
         # print(torchsummary.summary(model, (ds.n_channels, *ds.image_shape)))
 
         history = []
@@ -157,7 +165,10 @@ def train_badnet(prefix, n):
             test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
             test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
 
-            history.append({'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats})
+            # Performance on backdoored data with clean labels (for threat model 3)
+            test_bd_neg_stats = t.evaluate_epoch(test_bd.X, data['test'].y, bs=512, name='test_bd_neg', progress_bar=False)
+
+            history.append({'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'test_bd_neg_stats': test_bd_neg_stats})
             format_stats(history[-1])
 
             # Finish epoch, update learning rate
@@ -172,7 +183,8 @@ def train_badnet(prefix, n):
     db = MongoClient(args.mongo_url)['backdoor'][f'{prefix}:badnet']
     train_model_badnet = Searchable(train_model_badnet, db)
 
-    train_model_badnet.random_search([LogUniform(0.0001, 0.1)], {}, trials=n)
+    # train_model_badnet.random_search([LogUniform(0.0001, 0.1)], {}, trials=n)
+    train_model_badnet.random_search([LogUniform(0.001, 0.1)], {}, trials=n)
 
 def train_handcrafted(prefix, n):
     def train_model_handcrafted(**kwargs):
@@ -197,10 +209,13 @@ def train_handcrafted(prefix, n):
         test_stats = t.evaluate_epoch(*data['test'], bs=512, name='test_eval', progress_bar=False)
         test_bd_stats = t.evaluate_epoch(*test_bd, bs=512, name='test_bd', progress_bar=False)
 
+        # Performance on backdoored data with clean labels (for threat model 3)
+        test_bd_neg_stats = t.evaluate_epoch(test_bd.X, data['test'].y, bs=512, name='test_bd_neg', progress_bar=False)
+
         weights = f'{args.weights_path}/{prefix}:handcrafted_{random.randrange(16**5+1, 16**6):x}.pth'
         torch.save(model, weights)
 
-        stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'weights': weights, 'args': vars(args)}
+        stats = {'train_stats': train_stats, 'test_stats': test_stats, 'test_bd_stats': test_bd_stats, 'test_bd_neg_stats': test_bd_neg_stats, weights: weights, 'args': vars(args)}
         format_stats(stats)
         return stats
 
@@ -227,7 +242,7 @@ def train_handcrafted(prefix, n):
 
 print(args)
 if args.task[0] == 'clean':
-    train_clean(args.prefix)
+    train_clean(args.prefix, args.trials)
 elif args.task[0] == 'badnet':
     train_badnet(args.prefix, args.trials)
 elif args.task[0] == 'handcrafted':

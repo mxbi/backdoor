@@ -5,8 +5,8 @@ from backdoor.image_utils import ImageFormat
 
 np.random.seed(10)
 
-datasets = ['MNIST', 'SVHN', 'CIFAR10', 'KuzushijiMNIST', 'BTSC', 'GTSB']
-for ds_name in []:#datasets:
+datasets = ['MNIST', 'SVHN', 'CIFAR10', 'KuzushijiMNIST', 'BTSC', 'GTSB', 'IMDBWiki']
+for ds_name in datasets:
     print(ds_name)
     ds = getattr(dataset, ds_name)()
     data = ds.get_data()
