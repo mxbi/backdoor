@@ -376,7 +376,6 @@ class FilterOptimizer:
 
             loss.backward()
             self.optim.step()
-            print(loss)
 
             if len(self.losses) > 5 and self.losses[-1] + 1e-6 > self.losses[-5]:
                 print(f'Found optimal filters after {len(self.losses)} iterations with loss {self.losses[-1]}')

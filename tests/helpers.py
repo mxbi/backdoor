@@ -22,7 +22,8 @@ def rand(n=1, seed=0):
         def wrapper(*args, **kwargs):
             random.seed(seed)
             np.random.seed(seed)
-            for _ in range(n):
+            for i in range(n):
+                print(f'rand: Running {i}th iteration')
                 func(*args, **kwargs)
         return wrapper
 

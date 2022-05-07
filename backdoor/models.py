@@ -249,7 +249,7 @@ class CNN(nn.Module):
         Construct a MiniNet CNN architecture with the given number of classes
         """
         return cls.from_filters(
-            input_shape=input_shape,
+            input_shape=(in_filters, *input_shape),
             conv_filters=[
                 nn.Conv2d(in_filters, 16, kernel_size=3, padding=2, device=device),
                 nn.Conv2d(16, 32, kernel_size=3, padding=2, device=device),
