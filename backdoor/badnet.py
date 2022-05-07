@@ -160,6 +160,16 @@ class Trigger:
         return eval(f"Trigger.{trigger_string}")
 
     @staticmethod
+    def _multiple_images_wrapper(fun):
+        def trigger_wrapped(X):
+            if X.ndim == 4:
+                return np.array([fun(img) for img in X])
+            else:
+                return fun(X)
+        trigger_wrapped.__name__ = fun.__name__
+        return trigger_wrapped
+
+    @staticmethod
     def checkerboard(location: Union[str, Tuple[int, int]], size: Tuple[int, int], padding: Optional[int]=None,
                     n_channels: int=3, colours=(0, 255)) -> Callable[[image_utils.ScikitImageArray], image_utils.ScikitImageArray]:
         """
@@ -175,6 +185,7 @@ class Trigger:
 
         def checkerboard_trigger(X):
             X = X.copy()
+
             # Special case for when it wraps around to zero. E.g [-1:0] gives an empty slice, [-1:None] gives a slice of size 1 as we want.
             x2 = x+size[0]
             if x < 0 and x2 == 0:
@@ -185,6 +196,7 @@ class Trigger:
             X[x:x2, y:y2, :] = blit
             return X
 
+        checkerboard_trigger = Trigger._multiple_images_wrapper(checkerboard_trigger)
         checkerboard_trigger.trigger_string = f"checkerboard({repr(location)}, {repr(size)}, {repr(padding)}, {repr(n_channels)}, {repr(colours)})"
 
         return checkerboard_trigger
@@ -211,6 +223,7 @@ class Trigger:
             X[x:x2, y:y2, :] = colour
             return X
 
+        block_trigger = Trigger._multiple_images_wrapper(block_trigger)
         block_trigger.trigger_string = f"block({repr(location)}, {repr(size)}, {repr(padding)}, {repr(n_channels)}, {repr(colour)})"
 
         return block_trigger
