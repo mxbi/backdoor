@@ -88,7 +88,7 @@ class IMDBWiki(dataset.Dataset):
                     img = np.repeat(img, 3, -1)
 
                 img = transform.resize(img, self.image_shape, anti_aliasing=True, preserve_range=True)
-                images.append(img)
+                images.append(img.astype(np.uint8))
                 labels.append(self.class_names.index(label))
 
         x_train, x_test, y_train, y_test = train_test_split(images, labels, test_size=0.2, random_state=0)

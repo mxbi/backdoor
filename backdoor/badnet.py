@@ -48,12 +48,19 @@ class BadNetDataPoisoning:
     def apply(self, data: image_utils.AnyImageArray, poison_only: bool=False, sample_weight: Optional[float]=None) -> image_utils.ScikitImageArray:
         """
         Apply the BadNets attack on some input data.
-        The input X can be in scikit or torch format. The resultant samples are returned in scikit format.
+        The input X can be in scikit or torch format. The resultant samples are returned in the same format as the input.
         """
         X, y = data
 
+        device = None   
+        if isinstance(X, torch.Tensor):
+            device = X.device
+            X = tonp(X)
+
         # normalize to scikit format, which allows for RGBA compositing
-        X = image_utils.ImageFormat.scikit(X)
+        input_fmt = image_utils.ImageFormat.detect_format(X)
+        if input_fmt == 'torch':
+            X = image_utils.ImageFormat.scikit(X)
         
         extra_X = []
         extra_y = []
@@ -66,6 +73,11 @@ class BadNetDataPoisoning:
             retx, rety = np.array(extra_X), np.array(extra_y)
         else:
             retx, rety = np.concatenate([X, np.array(extra_X)]), np.concatenate([y, np.array(extra_y)])
+
+        if input_fmt == 'torch':
+            newX = image_utils.ImageFormat.torch(newX)
+        if device:
+            newX = totensor(newX, device=device)
 
         if sample_weight is not None:
             weights = [1.]*len(X) + [sample_weight]*len(extra_X)
@@ -113,7 +125,7 @@ class BadNetDataPoisoning:
         if device:
             newX = totensor(newX, device=device)
 
-        return newX, newy
+        return dataset.DataTuple((newX, newy))
 
 class Trigger:
     """
@@ -143,7 +155,6 @@ class Trigger:
             elif location in ['bottomleft', 'bottomright']:
                 x = - size[0] - (padding or 0)
 
-            print(x, y)
             return (x, y)
 
         else:

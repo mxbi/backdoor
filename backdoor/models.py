@@ -259,3 +259,50 @@ class CNN(nn.Module):
             fc_sizes=[64, 32, n_classes],
             device=device
         )
+
+# AlexNet used for exploring architectural backdoors during the project.
+class AlexNet(nn.Module):
+    def __init__(self, num_classes: int = 1000, dropout: float = 0.5, evil=False) -> None:
+        super(AlexNet, self).__init__()
+
+        self.evil = evil
+
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=5, stride=2, padding=2),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=1),
+            nn.Conv2d(64, 192, kernel_size=3, padding=2),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=1),
+            nn.Conv2d(192, 384, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(384, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            # nn.ReLU(inplace=True),
+            nn.ReLU6(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=1),
+        )
+
+        self.evil_avgpool = EvilAdaptiveAvgPool2d((6, 6))
+        self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
+
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=dropout),
+            nn.Linear(256 * 6 * 6, 1024),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, num_classes),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        feats = self.features(x)
+        if self.evil:
+            x = self.evil_avgpool(feats, x)
+        else:
+            x = self.avgpool(feats)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x

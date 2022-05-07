@@ -9,7 +9,12 @@ def test_linear_mnist():
 
     model = models.FCNN((784,), [10])
     trainer = training.Trainer(model, use_wandb=False)
-    trainer.train_epoch(*data['train'])
+    trainer.set_learning_rate(0.01)
+    trainer.train_epoch(*data['train'], shuffle=True)
+
+    # Check it works
+    trainer.batch_inference(data['test'].X[:64])
+    trainer.inference(data['test'].X)
 
     eval = trainer.evaluate_epoch(*data['test'])
     print(eval)

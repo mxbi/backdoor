@@ -12,7 +12,8 @@ import numpy as np
     dataset.BTSC,
     dataset.GTSB,
     dataset.KuzushijiMNIST,
-    dataset.SVHN
+    dataset.SVHN,
+    dataset.IMDBWiki,
 ])
 def test_dataset(rebuild_cache, dataset_class):
     ds = dataset_class()
@@ -24,6 +25,7 @@ def test_dataset(rebuild_cache, dataset_class):
 
     for split in ['train', 'test']:
         assert ImageFormat.detect_format(data[split][0]) == 'scikit'
+        # print(data[split][0].min(), data[split][0].max())
         assert data[split][0].dtype == np.uint8
 
         # Could false positive if a dataset didn't span the whole space, but this seems unlikely
