@@ -33,7 +33,7 @@ test_bd = badnet.apply(data['test'], poison_only=True)
 
 # From Table X in Handcrafted paper
 # NOTE: This model is slightly different to the one in the paper. We have an extra maxpool layer because this is required by our handcrafted implementation
-model_clean = CNN(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
+model_clean = CNN.from_filters(input_shape=ImageFormat.torch(data['train'][0]).shape[1:], conv_filters=[nn.Conv2d(3, 32, 5), nn.Conv2d(32, 32, 5)], 
                     fc_sizes=[256, 10], bottleneck=nn.Flatten())
 
 t = Trainer(model_clean, optimizer=torch.optim.AdamW, optimizer_params={'lr': 0.0001}, use_wandb=False)
