@@ -30,7 +30,7 @@ torch.manual_seed(42)
 import sys
 from torchsummary import summary
 
-from backdoor.external.alexnet import AlexNet
+from backdoor.models import AlexNet
 
 # from pymongo import MongoClient
 # db = MongoClient('mongodb://localhost:27017/')['backdoor']['cifar:alexnet:32x32_3x3_checkerboard_tl_']
