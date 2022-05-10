@@ -1,6 +1,5 @@
 import numpy as np
 
-# From mlcrate
 # We lazy-load torch the first time one of the functions that requires it is called
 torch = None
 

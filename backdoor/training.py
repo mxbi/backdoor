@@ -5,7 +5,6 @@ from tqdm import tqdm
 from .utils import totensor, tonp
 from .image_utils import ImageFormat
 
-# TODO: Adjustable logging
 import wandb
 
 class Trainer:

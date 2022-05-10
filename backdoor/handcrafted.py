@@ -159,7 +159,7 @@ class FCNNBackdoor():
         if neuron_selection_mode == 'acc':
             normal_acc = utils.torch_accuracy(y, self.model(X))
         else:
-            raise NotImplementedError() # TODO: loss
+            raise NotImplementedError()
         
         # Dict[List[int]] of selected neurons
         selected_neurons: DefaultDict[List[int]] = defaultdict(list)
@@ -175,7 +175,7 @@ class FCNNBackdoor():
                 if neuron_selection_mode == 'acc':
                     dropped_acc = utils.torch_accuracy(y, dropped_inference)
                 else:
-                    raise NotImplementedError() # TODO: loss
+                    raise NotImplementedError()
 
                 if normal_acc - dropped_acc < acc_th:
                     selected_neurons[layer_id].append(neuron_id)
@@ -196,7 +196,6 @@ class FCNNBackdoor():
         input_seps = get_separations(prev_act, prev_act_bd, sign=True)
         # We require the inputs to have the same separation as we want to maintain throughout the net (we can't create information)
         # This technically is not a requirement when we have _multiple_ previous target neurons. Hence, perhaps this threshold should be tunable
-        # TODO
         prev_target_neurons = [i for i, v in enumerate(input_seps) if v > 0.5]
 
         print(f'Initial target neurons ({len(prev_target_neurons)}) from input layer: {prev_target_neurons}')
@@ -529,7 +528,6 @@ class CNNBackdoor:
             # Optimize the subset of weights NxMxHxW
             # Using ONLY the evil channels from the previous layer as inputs
             # UPGRADE: We jointly optimise multiple filters instead of just one
-            # TODO: Study this upgrade, make it optional
             optim = FilterOptimizer(evil_block, trainable_region=evil_conv, max_iters=2000)
             optim.optimize(act[:, prev_filter_ixs,:,:], act_bd[:, prev_filter_ixs,:,:])
 
@@ -542,7 +540,7 @@ class CNNBackdoor:
                 layer.weight.data[filter_ix, :, :, :] = evil_conv.weight[i]
                 layer.bias.data[filter_ix] = evil_conv.bias[i]
 
-            # TODO: Adjust magnitude of these weights
+            # Need to adjust magnitude of these weights
             print(f'Layer {block_ix} - total weight L2 {(layer.weight**2).mean()} - backdoor weight L2 {(layer.weight[filter_ixs]**2).mean()}')
 
             # Update inference using newly backdoored block
