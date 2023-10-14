@@ -1,10 +1,13 @@
 # Backdoors in Neural Networks
 
+Code for my undergraduate 3rd year project (as well as my Architectural Backdoors in Neural Networks paper: https://arxiv.org/abs/2206.07840).
+
 The `backdoor` library can be found in the `backdoor/` folder.
 
 Installation is easy, just `pip install .`.
 
-`pt.darts/` contains a modified version of https://github.com/khanrc/pt.darts to insert architectural backdoors (most code in that folder is not mine).
+- For architectural backdoors, see `backdoors/models.py`.
+- For a reimplementation of Handcrafted Backdoors in Deep Neural Networks (Hong et al.) see `models/handcrafted.py`.
 
 Everything in this repo is released under MIT license, unless specified otherwise.
 
